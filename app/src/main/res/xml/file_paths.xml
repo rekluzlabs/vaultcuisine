@@ -1,0 +1,4 @@
+<paths>
+    <cache-path name="scanned_images" path="images/" />
+    <files-path name="exports" path="exports/" />
+</paths>

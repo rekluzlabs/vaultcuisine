@@ -1,0 +1,7 @@
+- `[x]` Fix Gradle issues
+    - `[x]` Update `libs.versions.toml` with complete plugin definitions
+    - `[x]` Sync root `build.gradle.kts` with version catalog
+    - `[x]` Update `app/build.gradle.kts` to use version catalog
+- `[x]` Verification
+    - `[x]` Run `./gradlew help`
+    - `[x]` Run `./gradlew assembleDebug`
