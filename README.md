@@ -109,4 +109,4 @@ This is currently a solo-developed project. Issues and suggestions are welcome; 
 
 ## License
 
-All Rights Reserved  See [LICENSE.md] for details.
+All Rights Reserved  See [https://github.com/rekluzlabs/vaultcuisine/blob/main/LICENSE.md] for details.
