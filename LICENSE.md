@@ -40,10 +40,9 @@ the Software or the use or other dealings in the Software.
 
 Governing Law
 
-This license shall be governed by and construed in accordance with the laws of [your
-province/state/country], without regard to its conflict of law principles.
+This license shall be governed by and construed in accordance with the laws of British Columbia, Canada, 
+without regard to its conflict of law principles.
 
 Requesting Permission
 
-For licensing inquiries, commercial use, or redistribution requests, contact [your contact email
-or method].
+For licensing inquiries, commercial use, or redistribution requests, contact rekluzlabs@gmail.com
