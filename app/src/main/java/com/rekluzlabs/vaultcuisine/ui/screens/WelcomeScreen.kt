@@ -34,18 +34,18 @@ fun WelcomeScreen(
             contentScale = ContentScale.Crop
         )
 
-        // Transparent clickable area over the button in the image
-        // The button is roughly at the bottom center of the image.
-        // We'll estimate its position relative to the screen.
+        // Full-width clickable area covering the bottom third of the screen.
+        // The welcome_background.webp image is ContentScale.Crop, so the
+        // visual button position shifts with aspect ratio. A large generous
+        // zone ensures the tap target always covers it regardless of crop.
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = (-40).dp) // Adjust based on image aspect ratio and crop
-                .fillMaxWidth(0.6f)
-                .height(80.dp)
+                .fillMaxWidth()
+                .height(screenHeight * 0.35f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null // No ripple to keep the "image" feel, or add if desired
+                    indication = null
                 ) {
                     onStartClick()
                 }

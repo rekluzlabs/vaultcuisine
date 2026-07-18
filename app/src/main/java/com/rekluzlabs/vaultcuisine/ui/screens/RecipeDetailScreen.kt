@@ -2,6 +2,7 @@ package com.rekluzlabs.vaultcuisine.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
@@ -26,9 +27,11 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -52,11 +55,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.rekluzlabs.vaultcuisine.R
 import com.rekluzlabs.vaultcuisine.MainViewModel
 import com.rekluzlabs.vaultcuisine.SectionType
 import com.rekluzlabs.vaultcuisine.data.Recipe
@@ -80,13 +89,15 @@ fun RecipeDetailScreen(
     recipeId: String,
     vm: MainViewModel,
     isNewRecipe: Boolean = false,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onReScan: ((newRecipeId: String) -> Unit)? = null
 ) {
     val recipes by vm.recipes.collectAsState()
     val recipe = recipes.find { it.id == recipeId }
     val editableLines by vm.editableLines.collectAsState()
 
     var isEditing by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -116,6 +127,18 @@ fun RecipeDetailScreen(
 
     val context = LocalContext.current
 
+    if (showDeleteDialog) {
+        DeleteRecipeDialog(
+            recipeTitle = recipe.title,
+            onConfirm = {
+                showDeleteDialog = false
+                vm.deleteRecipe(recipeId)
+                onBack()
+            },
+            onDismiss = { showDeleteDialog = false }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -142,11 +165,23 @@ fun RecipeDetailScreen(
                         IconButton(onClick = { vm.enterEditMode(recipeId); isEditing = true }) {
                             Icon(Icons.Default.Edit, contentDescription = "Edit recipe")
                         }
+                        if (onReScan != null && recipe.sourceImagePath != null) {
+                            IconButton(onClick = { onReScan(recipeId) }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "Re-scan with AI")
+                            }
+                        }
                         IconButton(onClick = { /* TODO: share sheet */ }) {
                             Icon(Icons.Default.Share, contentDescription = "Share recipe")
                         }
                         IconButton(onClick = { RecipePrinter.print(context, recipe) }) {
                             Icon(Icons.Default.Print, contentDescription = "Print recipe")
+                        }
+                        IconButton(onClick = { showDeleteDialog = true }) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = "Delete recipe",
+                                tint = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 }
@@ -167,6 +202,29 @@ fun RecipeDetailScreen(
             )
         }
     }
+}
+
+@Composable
+private fun DeleteRecipeDialog(
+    recipeTitle: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete recipe?") },
+        text = { Text("Are you sure you want to delete \"$recipeTitle\"? This cannot be undone.") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Delete", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable

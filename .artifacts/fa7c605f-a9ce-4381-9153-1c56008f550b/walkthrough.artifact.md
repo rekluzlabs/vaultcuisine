@@ -1,32 +1,26 @@
-# Gradle Upgrade and Incompatibility Fix Walkthrough
+# Walkthrough - Interactive Welcome Screen
 
-The project's Gradle issues have been resolved by upgrading the Android Gradle Plugin (AGP) and aligning the project with the latest Kotlin and dependency standards.
+I have implemented the Welcome Screen as the new entry point for the app.
 
 ## Changes Made
 
-### 1. Version Catalog Alignment (`libs.versions.toml`)
-- Upgraded **AGP** to `9.3.0` to resolve incompatibility with Gradle `9.6.1`.
-- Upgraded **Kotlin** to `2.3.10` and **KSP** to `2.3.10`.
-- Added missing plugin definitions for `kotlin-compose`, `kotlin-serialization`, and `ksp`.
+### Navigation
+- Added `NavRoutes.Welcome` to the navigation sealed class.
+- Updated `MainActivity` to use `Welcome` as the `startDestination`.
+- Implemented logic to clear the backstack when navigating from Welcome to Home, so pressing "back" from the Home screen exits the app instead of returning to the Welcome screen.
 
-### 2. Root Build Configuration (`build.gradle.kts`)
-- Transitioned to the version catalog (`alias(libs.plugins...)`) for all plugins.
-- Removed the `kotlin-android` plugin declaration. As of AGP 9.0, Kotlin support is **built-in** to the Android plugin, making the separate plugin redundant and potentially conflicting.
-
-### 3. App Module Configuration (`app/build.gradle.kts`)
-- **SDK Upgrade:** Upgraded `compileSdk` and `targetSdk` to `37`. This was required by several newer libraries (like `androidx.core:core:1.19.0`) that mandated a higher SDK level for AAR metadata checks.
-- **DSL Modernization:**
-    - Removed `kotlinOptions { jvmTarget = "17" }` as it is replaced by `compilerOptions` and now defaults to the Java `targetCompatibility` in AGP 9.0.
-    - Removed `composeOptions` as the Compose compiler version is now managed directly by the Kotlin version in Kotlin 2.x.
-- **Dependency Upgrades:** Upgraded **Room** to `2.8.4` to ensure compatibility with KSP2 and Kotlin 2.x.
-- **Version Catalog Sync:** Switched core dependencies to use the version catalog for centralized management.
+### UI Screens
+- Created [WelcomeScreen.kt](file:///C:/Android_Projects/VaultCuisine/app/src/main/java/com/rekluzlabs/vaultcuisine/ui/screens/WelcomeScreen.kt).
+- Used a `Box` overlay to create a clickable area over the "START YOUR CULINARY JOURNEY" button in the background image.
 
 ## Verification Results
 
 ### Automated Tests
-- `gradlew help`: **PASSED**
-- `gradlew assembleDebug`: **PASSED** (Build Successful)
+- Gradle Sync: **PASSED**
 
 ### Manual Verification
-- Verified that the IDE Gradle sync completes without errors.
-- Confirmed that Kotlin compilation and KSP processing (for Room) are functioning correctly.
+> [!IMPORTANT]
+> **Action Required:** You must save the provided image as `app/src/main/res/drawable/welcome_background.png` (or `.jpg`) for the app to compile and run.
+
+- Once the image is added, the app will launch directly into the Welcome Screen.
+- Tapping the button area will navigate to the main recipe list.

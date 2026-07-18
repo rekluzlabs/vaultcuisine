@@ -1,0 +1,26 @@
+{
+  "recipe_name": "Basic New York-Style Pizza Dough",
+  "rating": "5 stars",
+  "times": {
+    "prep_time": "10 mins",
+    "active_time": "30 mins",
+    "rising_time": "26 hrs",
+    "total_time": "26 hrs 10 mins"
+  },
+  "servings": "3 pizzas",
+  "handwritten_notes": [
+    "4 BALLS"
+  ],
+  "ingredients": [
+    "22.5 ounces bread flour, plus more for dusting (630 g; about 4 1/2 cups)",
+    "0.5 ounces sugar (15 g; about 1 1/2 tablespoons)",
+    "0.35 ounces kosher salt (10 g; about 1 tablespoon)",
+    "0.35 ounces instant yeast, such as SAF Instant Yeast (10 g; about 2 teaspoons)",
+    "1.125 ounces extra virgin olive oil (32 g; about 3 tablespoons)",
+    "15 ounces lukewarm water (420 g; about 1 3/4 cups)"
+  ],
+  "directions": [
+    "Combine flour, sugar, salt, and yeast in bowl of food processor. Pulse 3 to 4 times until incorporated. Add olive oil and water. Run food processor until mixture forms ball that rides around the bowl above the blade, about 15 seconds. Continue processing 15 seconds longer.",
+    "Transfer dough ball to lightly floured surface and knead once or twice by hand until smooth ball is formed. It should pass the windowpane test. Divide dough into three even parts and place each in a covered quart-sized deli container or in a zipper-lock freezer bag. Place in refrigerator and allow to rise at least 1 day, and up to 5. Remove from refrigerator, shape into balls, and allow to rest at room temperature for at least 2 hours before baking."
+  ]
+}

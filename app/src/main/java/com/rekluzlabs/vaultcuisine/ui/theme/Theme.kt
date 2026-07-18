@@ -18,11 +18,26 @@ private val LightColors = lightColorScheme(
     surface = VaultSurfaceLight
 )
 
+private val AmoledColors = darkColorScheme(
+    primary = VaultAccent,
+    background = VaultSurfaceAmoled,
+    surface = VaultSurfaceAmoled,
+    surfaceContainerLow = VaultSurfaceAmoled,
+    surfaceContainer = VaultSurfaceAmoled,
+    surfaceContainerHigh = VaultSurfaceAmoled,
+    surfaceContainerHighest = VaultSurfaceAmoled
+)
+
 @Composable
 fun VaultCuisineTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
+    amoled: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colors = if (darkTheme) DarkColors else LightColors
+    val colors = when {
+        amoled -> AmoledColors
+        darkTheme -> DarkColors
+        else -> LightColors
+    }
     MaterialTheme(colorScheme = colors, typography = Typography, content = content)
 }

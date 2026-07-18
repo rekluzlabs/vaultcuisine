@@ -364,6 +364,68 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
+    /**
+     * Re-runs Gemini structuring on an already-saved recipe's original image.
+     * Does NOT modify the existing saved recipe — the new result is saved
+     * separately and returned via onNewRecipeId for the review/edit screen.
+     *
+     * Flow: load saved image -> prepareForUpload -> Gemini image mode ->
+     * on success, upsert new result + callback with new ID.
+     * On failure at any tier: show error message, leave existing recipe untouched.
+     */
+    fun rescanRecipe(recipeId: String, onNewRecipeId: (String) -> Unit) {
+        viewModelScope.launch {
+            val recipe = dao.getById(recipeId) ?: return@launch
+            val imagePath = recipe.sourceImagePath
+
+            if (imagePath == null) {
+                _userMessages.tryEmit("This recipe has no saved scan image to re-process.")
+                return@launch
+            }
+            val imageFile = File(imagePath)
+            if (!imageFile.exists()) {
+                _userMessages.tryEmit("Original image file is missing. Can't re-scan.")
+                return@launch
+            }
+            if (!credentialStore.hasApiKey()) {
+                _userMessages.tryEmit("No Gemini API key configured. Add one in Settings to re-scan with AI.")
+                return@launch
+            }
+
+            val imageBytes = imageFile.readBytes()
+            val preparedBytes = imagePreprocessor.prepareForUpload(imageBytes)
+
+            val newRecipe = try {
+                geminiClient.structureFromImage(preparedBytes)
+            } catch (e: MissingApiKeyException) {
+                _userMessages.tryEmit("No Gemini API key configured. Add one in Settings to re-scan with AI.")
+                return@launch
+            } catch (e: NotARecipeException) {
+                _userMessages.tryEmit("This doesn't look like a recipe. Result discarded.")
+                return@launch
+            } catch (e: RateLimitException) {
+                _userMessages.tryEmit("Gemini quota exceeded. Try again later.")
+                return@launch
+            } catch (e: NetworkException) {
+                try {
+                    geminiClient.structureFromImage(imagePreprocessor.prepareForUpload(imageBytes))
+                } catch (_: Exception) {
+                    _userMessages.tryEmit("Network error. Check your connection and try again.")
+                    return@launch
+                }
+            } catch (_: Exception) {
+                _userMessages.tryEmit("AI re-scan failed. Try again later.")
+                return@launch
+            }
+
+            // Point the new result at the same original image; don't re-persist.
+            val saved = newRecipe.copy(sourceImagePath = imagePath)
+            dao.upsert(saved)
+            _newRecipeIds.add(saved.id)
+            onNewRecipeId(saved.id)
+        }
+    }
+
     fun clearAllData() {
         viewModelScope.launch {
             File(app.filesDir, IMAGE_DIR).deleteRecursively()

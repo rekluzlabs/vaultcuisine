@@ -54,6 +54,12 @@ fun VaultCuisineNavHost(vm: MainViewModel) {
     val recipes by vm.recipes.collectAsState()
     val settings by vm.settings.collectAsState()
 
+    LaunchedEffect(Unit) {
+        vm.userMessages.collect { msg ->
+            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
@@ -133,7 +139,10 @@ fun VaultCuisineNavHost(vm: MainViewModel) {
             RecipeDetailScreen(
                 recipeId = recipeId,
                 vm = vm,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onReScan = { newId ->
+                    navController.navigate(NavRoutes.ReviewEdit.build(newId, isNew = true))
+                }
             )
         }
 

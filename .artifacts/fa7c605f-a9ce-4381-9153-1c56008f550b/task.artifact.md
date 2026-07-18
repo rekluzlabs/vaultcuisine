@@ -1,7 +1,7 @@
-- `[x]` Fix Gradle issues
-    - `[x]` Update `libs.versions.toml` with complete plugin definitions
-    - `[x]` Sync root `build.gradle.kts` with version catalog
-    - `[x]` Update `app/build.gradle.kts` to use version catalog
-- `[x]` Verification
-    - `[x]` Run `./gradlew help`
-    - `[x]` Run `./gradlew assembleDebug`
+- `[x]` Implement Welcome Screen
+    - `[x]` Add `Welcome` route to `NavRoutes.kt`
+    - `[x]` Create `WelcomeScreen.kt` with interactive area
+    - `[x]` Update `MainActivity.kt` to use `Welcome` as start destination
+- `[/]` Verification
+    - `[ ]` Verify Gradle sync
+    - `[ ]` Manual verification (requires image resource)

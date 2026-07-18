@@ -1,31 +1,37 @@
-# Gradle Upgrade Fix Plan
+# Implementation Plan - Welcome Screen with Interactive Image
 
-The project is currently experiencing a build failure because the Android Gradle Plugin (AGP) version `8.13.2` is incompatible with Gradle `9.6.1`. AGP 8.x relies on internal Gradle APIs that were removed in Gradle 9.6.0.
+The goal is to implement a new "Welcome" screen as the entry point of the app. This screen will feature the provided image as a full-screen background, with a clickable area over the "START YOUR CULINARY JOURNEY" button in the image.
 
-The version catalog (`libs.versions.toml`) already contains a newer AGP version (`9.3.0`), but it is not being used in the root `build.gradle.kts`. Additionally, other plugins and dependencies are out of sync with the version catalog.
+## User Review Required
+
+> [!IMPORTANT]
+> You will need to save the provided image as `app/src/main/res/drawable/welcome_background.png` before the app can build and run successfully.
 
 ## Proposed Changes
 
-### Build Configuration
+### Navigation
 
-#### [MODIFY] [libs.versions.toml](file:///C:/Android_Projects/VaultCuisine/gradle/libs.versions.toml)
-- Update Kotlin version to a more recent one if necessary, but at least ensure all plugins are defined.
-- Add missing plugin definitions for Kotlin Serialization and KSP.
-- Ensure KSP version is compatible with the selected Kotlin version.
+#### [MODIFY] [NavRoutes.kt](file:///C:/Android_Projects/VaultCuisine/app/src/main/java/com/rekluzlabs/vaultcuisine/ui/NavRoutes.kt)
+- Add `Welcome` route.
 
-#### [MODIFY] [build.gradle.kts (root)](file:///C:/Android_Projects/VaultCuisine/build.gradle.kts)
-- Replace hardcoded plugin versions with aliases from the version catalog.
-- This will upgrade AGP to `9.3.0`, which is compatible with Gradle `9.6.1`.
+#### [MODIFY] [MainActivity.kt](file:///C:/Android_Projects/VaultCuisine/app/src/main/java/com/rekluzlabs/vaultcuisine/MainActivity.kt)
+- Update `VaultCuisineNavHost` to start at `NavRoutes.Welcome`.
+- Add the `WelcomeScreen` composable to the `NavHost`.
 
-#### [MODIFY] [build.gradle.kts (app)](file:///C:/Android_Projects/VaultCuisine/app/build.gradle.kts)
-- Use version catalog aliases for plugins.
-- Update dependencies to use the version catalog where definitions exist.
+### UI Screens
+
+#### [NEW] [WelcomeScreen.kt](file:///C:/Android_Projects/VaultCuisine/app/src/main/java/com/rekluzlabs/vaultcuisine/ui/screens/WelcomeScreen.kt)
+- Create a new Composable that displays the background image.
+- Use `BoxWithConstraints` to overlay a transparent clickable area precisely over the button in the image.
+- Navigation trigger to move to `NavRoutes.Home` when the area is clicked.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `./gradlew help` to verify that the Gradle configuration is successful.
-- Run `./gradlew assembleDebug` to ensure the project builds with the new versions.
+- I'll check for compilation errors after adding the new screen and updating navigation.
 
 ### Manual Verification
-- Verify that the IDE syncs successfully after the changes.
+- Deploy to a device/emulator.
+- Verify the `WelcomeScreen` appears first.
+- Click the "START YOUR CULINARY JOURNEY" area to ensure it navigates to the Home screen.
+- Verify the layout looks correct on different screen sizes.

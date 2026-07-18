@@ -9,6 +9,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Verifies that ImagePreprocessor.prepareForUpload() strips all EXIF metadata
