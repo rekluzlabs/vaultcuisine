@@ -107,3 +107,6 @@ Contributing
 
 This is currently a solo-developed project. Issues and suggestions are welcome; PR guidelines TBD.
 
+## License
+
+All Rights Reserved  See [LICENSE.md] for details.
