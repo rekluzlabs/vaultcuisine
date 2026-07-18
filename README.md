@@ -107,12 +107,3 @@ Contributing
 
 This is currently a solo-developed project. Issues and suggestions are welcome; PR guidelines TBD.
 
- License & Copyright
-
-Copyright © 2026 Rico (Rekluz Labs). All Rights Reserved.
-
-This project and its associated assets (source code, graphics, and design) are the exclusive property of the creator.
-
-    Personal Use: You may view and fork this repository for personal, educational, and non-commercial study only.
-    Prohibited Use: No part of this project may be redistributed, modified for public use, or used in commercial products without express written permission.
-    No Warranty: This software is provided "as-is," without warranty of any kind.
