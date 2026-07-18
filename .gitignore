@@ -13,3 +13,11 @@
 .externalNativeBuild
 .cxx
 local.properties
+# Build artifacts
+*.apk
+*.aab
+
+# Signing — do not commit these, repo is public
+*.jks
+*.keystore
+keystore.properties
