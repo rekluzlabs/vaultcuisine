@@ -6,9 +6,8 @@ import com.rekluzlabs.vaultcuisine.data.RecipeStep
 import java.util.UUID
 
 /**
- * Turns raw OCR text into a structured Recipe. Multiple implementations:
- *  - GeminiNanoStructurer: on-device LLM via AICore (best quality, flagship devices only)
- *  - HeuristicStructurer: regex/pattern fallback (works everywhere, lower quality)
+ * Turns raw OCR text into a structured Recipe. Implementations:
+ *  - HeuristicStructurer: regex/pattern fallback (works everywhere)
  *
  * Callers should run TextNormalizer.normalize() on raw OCR text before
  * passing it to either implementation — see MainViewModel.

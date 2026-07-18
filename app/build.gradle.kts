@@ -13,8 +13,8 @@ android {
         applicationId = "com.rekluzlabs.vaultcuisine"
         minSdk = 26
         targetSdk = 36
-        versionCode = 26071601
-        versionName = "0.1.1"
+        versionCode = 26071801
+        versionName = "0.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -68,8 +68,6 @@ dependencies {
     // ML Kit Text Recognition (on-device OCR, offline)
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0-beta1")
-    implementation("com.google.mlkit:genai-prompt:1.0.0-beta2")
-
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

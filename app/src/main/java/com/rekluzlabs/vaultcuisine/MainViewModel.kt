@@ -4,11 +4,12 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.rekluzlabs.vaultcuisine.ai.AiCapability
-import com.rekluzlabs.vaultcuisine.ai.GeminiNanoStructurer
 import com.rekluzlabs.vaultcuisine.ai.HeuristicStructurer
+import com.rekluzlabs.vaultcuisine.data.AppSettings
 import com.rekluzlabs.vaultcuisine.data.Recipe
+import com.rekluzlabs.vaultcuisine.data.RecipeExport
 import com.rekluzlabs.vaultcuisine.data.RecipeIngredient
+import com.rekluzlabs.vaultcuisine.data.tryParseGeminiImport
 import com.rekluzlabs.vaultcuisine.data.RecipeStep
 import com.rekluzlabs.vaultcuisine.ocr.TextRecognizerHelper
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
@@ -26,11 +27,20 @@ enum class SectionType { INGREDIENT, STEP }
 
 class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
+    private val prefs = app.preferences
     private val dao = app.database.recipeDao()
     private val ocr = TextRecognizerHelper()
 
     val recipes: StateFlow<List<Recipe>> = dao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _settings = MutableStateFlow(prefs.load())
+    val settings: StateFlow<AppSettings> = _settings
+
+    fun updateSettings(s: AppSettings) {
+        _settings.value = s
+        prefs.save(s)
+    }
 
     private val _editableLines = MutableStateFlow<List<EditableLine>?>(null)
     val editableLines: StateFlow<List<EditableLine>?> = _editableLines
@@ -220,28 +230,13 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     }
 
     /**
-     * Runs the scan pipeline: OCR -> AI structuring (Gemini Nano multimodal
-     * if available, text-only Nano if available but no image ref needed,
-     * heuristic fallback otherwise) -> save to Room -> callback with new ID
-     * so the caller can navigate to the review/edit screen.
+     * Runs the scan pipeline: OCR -> heuristic structuring -> save to Room
+     * -> callback with new ID so the caller can navigate to the review/edit screen.
      */
     fun processScannedImage(bitmap: Bitmap, onSaved: (recipeId: String) -> Unit) {
         viewModelScope.launch {
             val rawText = ocr.recognizeText(bitmap)
-
-            val nano = GeminiNanoStructurer(app)
-            val isAvailable = AiCapability.check(app) == AiCapability.AVAILABLE
-
-            // Explicit routing: multimodal only on AVAILABLE, heuristic on
-            // DOWNLOADABLE/UNAVAILABLE — never call Nano as an implicit fallback.
-            val recipe = try {
-                if (isAvailable)
-                    nano.structureMultimodal(rawText, bitmap)
-                else
-                    HeuristicStructurer().structure(rawText)
-            } catch (e: Throwable) {
-                HeuristicStructurer().structure(rawText)
-            }
+            val recipe = HeuristicStructurer().structure(rawText)
 
             dao.upsert(recipe)
             _newRecipeIds.add(recipe.id)
@@ -255,7 +250,40 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
+    fun clearAllData() {
+        viewModelScope.launch {
+            dao.clearAll()
+            prefs.clearAll()
+            _settings.value = AppSettings()
+        }
+    }
+
+    fun exportRecipesJson(): String {
+        val all = recipes.value
+        return jsonPretty.encodeToString(RecipeExport.serializer(), RecipeExport(recipes = all))
+    }
+
+    fun importRecipesJson(json: String, onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            val recipes = try {
+                jsonLenient.decodeFromString(RecipeExport.serializer(), json).recipes
+            } catch (_: Exception) {
+                tryParseGeminiImport(json, jsonLenient)
+            }
+
+            if (recipes != null) {
+                recipes.forEach { dao.upsert(it) }
+                onDone(recipes.size)
+            } else {
+                onDone(-1)
+            }
+        }
+    }
+
     companion object {
+        private val jsonPretty = kotlinx.serialization.json.Json { prettyPrint = true }
+        private val jsonLenient = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
         fun factory(app: VaultCuisineApp) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =

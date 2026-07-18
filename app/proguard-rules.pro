@@ -10,15 +10,20 @@
 -keepclasseswithmembers class kotlinx.serialization.json.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep,includedescriptorclasses class com.rekluzlabs.vaultcuisine.data.**$$serializer { *; }
--keepclassmembers class com.rekluzlabs.vaultcuisine.data.** {
+-keep,includedescriptorclasses class com.rekluzlabs.vaultcuisine.**$$serializer { *; }
+-keepclassmembers class com.rekluzlabs.vaultcuisine.** {
     *** Companion;
 }
--keepclasseswithmembers class com.rekluzlabs.vaultcuisine.data.** {
+-keepclasseswithmembers class com.rekluzlabs.vaultcuisine.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
 # Keep Room entities
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *
--dontwarn androidx.room.paging.**
+-dontwarn androidx.room.paging.*
+
+# Keep ML Kit models
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**
+
