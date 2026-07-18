@@ -7,8 +7,8 @@ import java.io.ByteArrayOutputStream
 class ImagePreprocessor {
 
     fun prepareForUpload(imageBytes: ByteArray): ByteArray {
-        val stripped = stripExif(imageBytes)
-        return compressForUpload(stripped)
+        val compressed = compressForUpload(imageBytes)
+        return stripExif(compressed)
     }
 
     fun stripExif(imageBytes: ByteArray): ByteArray {

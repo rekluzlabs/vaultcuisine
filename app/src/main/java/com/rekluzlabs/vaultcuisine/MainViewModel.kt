@@ -7,18 +7,18 @@ import androidx.lifecycle.viewModelScope
 import com.rekluzlabs.vaultcuisine.ai.GeminiCredentialStore
 import com.rekluzlabs.vaultcuisine.ai.GeminiOcrClient
 import com.rekluzlabs.vaultcuisine.ai.GeminiOcrException
+import com.rekluzlabs.vaultcuisine.ai.HeuristicStructurer
 import com.rekluzlabs.vaultcuisine.ai.ImagePreprocessor
 import com.rekluzlabs.vaultcuisine.ai.MissingApiKeyException
 import com.rekluzlabs.vaultcuisine.ai.NetworkException
 import com.rekluzlabs.vaultcuisine.ai.NotARecipeException
 import com.rekluzlabs.vaultcuisine.ai.RateLimitException
-import com.rekluzlabs.vaultcuisine.ai.HeuristicStructurer
 import com.rekluzlabs.vaultcuisine.data.AppSettings
 import com.rekluzlabs.vaultcuisine.data.Recipe
 import com.rekluzlabs.vaultcuisine.data.RecipeExport
 import com.rekluzlabs.vaultcuisine.data.RecipeIngredient
-import com.rekluzlabs.vaultcuisine.data.tryParseGeminiImport
 import com.rekluzlabs.vaultcuisine.data.RecipeStep
+import com.rekluzlabs.vaultcuisine.data.tryParseGeminiImport
 import com.rekluzlabs.vaultcuisine.ocr.TextRecognizerHelper
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
 enum class SectionType { INGREDIENT, STEP }
@@ -52,11 +54,6 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     private val _userMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val userMessages: SharedFlow<String> = _userMessages
 
-    fun updateSettings(s: AppSettings) {
-        _settings.value = s
-        prefs.save(s)
-    }
-
     private val _editableLines = MutableStateFlow<List<EditableLine>?>(null)
     val editableLines: StateFlow<List<EditableLine>?> = _editableLines
 
@@ -66,6 +63,13 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     val conversionEvents: SharedFlow<String> = _conversionEvents
 
     private val _newRecipeIds = mutableSetOf<String>()
+
+    fun updateSettings(s: AppSettings) {
+        _settings.value = s
+        prefs.save(s)
+    }
+
+    // ── Gemini API key ──
 
     fun saveGeminiApiKey(key: String) {
         credentialStore.saveApiKey(key)
@@ -78,6 +82,8 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     fun getGeminiApiKey(): String? = credentialStore.getApiKey()
 
     fun hasGeminiApiKey(): Boolean = credentialStore.hasApiKey()
+
+    // ── Edit mode ──
 
     fun enterEditMode(recipeId: String) {
         val recipe = recipes.value.find { it.id == recipeId } ?: return
@@ -134,6 +140,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         if (wasNew) {
             viewModelScope.launch {
                 dao.deleteById(recipe.id)
+                deleteImageFile(recipe.sourceImagePath)
             }
         }
     }
@@ -257,47 +264,71 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     }
 
     /**
-     * Runs the scan pipeline: OCR -> Gemini image mode (if key configured)
-     * -> Gemini text mode (fallback) -> HeuristicStructurer (offline fallback).
+     * Runs the scan pipeline:
+     *   1. Gemini image mode (key + image bytes available)
+     *   2. Gemini text mode (key present, image bytes unavailable)
+     *   3. HeuristicStructurer (fully offline)
      *
-     * Priority order:
-     * 1. Gemini image mode — preferred, best accuracy (key + image bytes available)
-     * 2. Gemini text mode — safety net (key present, image bytes unavailable)
-     * 3. HeuristicStructurer — fully offline, always succeeds
+     * Saves the original Bitmap to app-private storage as the permanent
+     * reference copy before discarding.
      */
     fun processScannedImage(bitmap: Bitmap, onSaved: (recipeId: String) -> Unit) {
         viewModelScope.launch {
             val rawText = ocr.recognizeText(bitmap)
 
             val recipe = if (credentialStore.hasApiKey()) {
-                try {
-                    val imageBytes = bitmapToJpegBytes(bitmap)
-                    geminiClient.structureFromImage(imageBytes)
-                } catch (e: MissingApiKeyException) {
-                    HeuristicStructurer().structure(rawText)
-                } catch (e: NotARecipeException) {
-                    _userMessages.tryEmit("This doesn't look like a recipe. Falling back to text-based parsing.")
-                    HeuristicStructurer().structure(rawText)
-                } catch (e: RateLimitException) {
-                    _userMessages.tryEmit("You've hit your Gemini quota. Falling back to offline parsing.")
-                    HeuristicStructurer().structure(rawText)
-                } catch (e: NetworkException) {
-                    try {
-                        val imageBytes = bitmapToJpegBytes(bitmap)
-                        geminiClient.structureFromImage(imageBytes)
-                    } catch (_: Exception) {
-                        HeuristicStructurer().structure(rawText)
-                    }
+                val imageBytes = try {
+                    bitmapToJpegBytes(bitmap)
                 } catch (_: Exception) {
-                    HeuristicStructurer().structure(rawText)
+                    null
+                }
+                if (imageBytes != null) {
+                    // Tier 1: Gemini image mode
+                    runGeminiImageMode(rawText, imageBytes)
+                } else {
+                    // Tier 2: Gemini text mode (image bytes unavailable)
+                    runGeminiTextMode(rawText)
                 }
             } else {
+                // Tier 3: heuristic
                 HeuristicStructurer().structure(rawText)
             }
 
-            dao.upsert(recipe)
-            _newRecipeIds.add(recipe.id)
-            onSaved(recipe.id)
+            val imagePath = saveOriginalImage(bitmap, recipe.id)
+            val saved = recipe.copy(sourceImagePath = imagePath)
+            dao.upsert(saved)
+            _newRecipeIds.add(saved.id)
+            onSaved(saved.id)
+        }
+    }
+
+    private suspend fun runGeminiImageMode(rawText: String, imageBytes: ByteArray): Recipe {
+        return try {
+            geminiClient.structureFromImage(imageBytes)
+        } catch (e: MissingApiKeyException) {
+            HeuristicStructurer().structure(rawText)
+        } catch (e: NotARecipeException) {
+            _userMessages.tryEmit("This doesn't look like a recipe. Falling back to text-based parsing.")
+            HeuristicStructurer().structure(rawText)
+        } catch (e: RateLimitException) {
+            _userMessages.tryEmit("You've hit your Gemini quota. Falling back to offline parsing.")
+            HeuristicStructurer().structure(rawText)
+        } catch (e: NetworkException) {
+            try {
+                geminiClient.structureFromImage(imageBytes)
+            } catch (_: Exception) {
+                HeuristicStructurer().structure(rawText)
+            }
+        } catch (_: Exception) {
+            HeuristicStructurer().structure(rawText)
+        }
+    }
+
+    private suspend fun runGeminiTextMode(rawText: String): Recipe {
+        return try {
+            geminiClient.structure(rawText)
+        } catch (_: Exception) {
+            HeuristicStructurer().structure(rawText)
         }
     }
 
@@ -307,20 +338,43 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         return stream.toByteArray()
     }
 
+    // ── Image persistence ──
+
+    private fun saveOriginalImage(bitmap: Bitmap, recipeId: String): String {
+        val dir = File(app.filesDir, IMAGE_DIR)
+        dir.mkdirs()
+        val file = File(dir, "${recipeId}.jpg")
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+        }
+        return file.absolutePath
+    }
+
+    private fun deleteImageFile(imagePath: String?) {
+        if (imagePath != null) File(imagePath).delete()
+    }
+
     fun deleteRecipe(id: String) {
         viewModelScope.launch {
-            dao.deleteById(id)
+            val recipe = dao.getById(id)
+            if (recipe != null) {
+                deleteImageFile(recipe.sourceImagePath)
+                dao.deleteById(id)
+            }
         }
     }
 
     fun clearAllData() {
         viewModelScope.launch {
+            File(app.filesDir, IMAGE_DIR).deleteRecursively()
             dao.clearAll()
             prefs.clearAll()
             credentialStore.clearApiKey()
             _settings.value = AppSettings()
         }
     }
+
+    // ── Export / Import ──
 
     fun exportRecipesJson(): String {
         val all = recipes.value
@@ -345,6 +399,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     }
 
     companion object {
+        private const val IMAGE_DIR = "recipe_images"
         private val jsonPretty = kotlinx.serialization.json.Json { prettyPrint = true }
         private val jsonLenient = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
