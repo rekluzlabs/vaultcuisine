@@ -16,14 +16,16 @@ data class RecipeIngredient(
     val id: String,
     val amount: String?,
     val unit: String?,      // e.g. "cup", "tsp", "g" — null for countable items
-    val name: String        // e.g. "large eggs", "garlic cloves"
+    val name: String,       // e.g. "large eggs", "garlic cloves"
+    val confidence: String? = null
 )
 
 @Serializable
 data class RecipeStep(
     val id: String,
     val text: String,
-    val timerSeconds: Int? = null // populated by AI structuring pass when a step implies waiting
+    val timerSeconds: Int? = null, // populated by AI structuring pass when a step implies waiting
+    val confidence: String? = null
 )
 
 @Serializable
@@ -41,5 +43,6 @@ data class Recipe(
     val isFavorite: Boolean = false,
     val sourceImagePath: String? = null, // local path to original scanned photo, if any
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val confidence: String? = null
 )

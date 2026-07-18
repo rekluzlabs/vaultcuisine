@@ -16,6 +16,10 @@ interface RecipeStructurer {
     suspend fun structure(rawText: String): Recipe
 }
 
+interface ImageCapableStructurer {
+    suspend fun structureFromImage(imageBytes: ByteArray): Recipe
+}
+
 /**
  * Zone-isolated fallback parser: splits the (already normalized) text into
  * an ingredients zone and a steps zone up front, then runs extraction only

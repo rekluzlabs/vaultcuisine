@@ -14,9 +14,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -46,6 +51,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.rekluzlabs.vaultcuisine.R
@@ -56,6 +65,9 @@ import com.rekluzlabs.vaultcuisine.data.AppSettings
 fun SettingsScreen(
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
+    hasGeminiKey: Boolean,
+    onSaveGeminiKey: (String) -> Unit,
+    onClearGeminiKey: () -> Unit,
     onExportRecipes: () -> Unit,
     onImportRecipes: () -> Unit,
     onClearAllData: () -> Unit,
@@ -63,6 +75,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var showClearDialog by remember { mutableStateOf(false) }
+    var apiKeyInput by remember { mutableStateOf("") }
+    var showApiKey by remember { mutableStateOf(false) }
 
     if (showClearDialog) {
         AlertDialog(
@@ -115,6 +129,67 @@ fun SettingsScreen(
                 options = listOf("en" to "English", "fr" to "French", "de" to "German", "es" to "Spanish", "it" to "Italian"),
                 onValueChanged = { onSettingsChanged(settings.copy(ocrLanguage = it)) }
             )
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // ── Gemini API ──
+            SectionHeader("Gemini API")
+
+            Text(
+                text = "Used to read and structure scanned recipe images. Your key is stored encrypted on this device. Images are sent to Google's Gemini API for processing when this is configured.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            OutlinedTextField(
+                value = apiKeyInput,
+                onValueChange = { apiKeyInput = it },
+                label = { Text("API Key") },
+                placeholder = { if (hasGeminiKey) Text("•".repeat(24)) else Text("Enter your Gemini API key") },
+                singleLine = true,
+                visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    Row {
+                        IconButton(onClick = { showApiKey = !showApiKey }) {
+                            Icon(
+                                if (showApiKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                contentDescription = if (showApiKey) "Hide key" else "Show key"
+                            )
+                        }
+                        if (hasGeminiKey) {
+                            IconButton(onClick = {
+                                onClearGeminiKey()
+                                apiKeyInput = ""
+                            }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Clear key")
+                            }
+                        }
+                    }
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Password,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { if (apiKeyInput.isNotBlank()) onSaveGeminiKey(apiKeyInput.trim()) }
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Button(
+                onClick = {
+                    if (apiKeyInput.isNotBlank()) onSaveGeminiKey(apiKeyInput.trim())
+                },
+                enabled = apiKeyInput.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (hasGeminiKey) "Update Key" else "Save Key")
+            }
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
