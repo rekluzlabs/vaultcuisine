@@ -107,6 +107,6 @@ Contributing
 
 This is currently a solo-developed project. Issues and suggestions are welcome; PR guidelines TBD.
 
-## License
+License 
 
-All Rights Reserved  See [https://github.com/rekluzlabs/vaultcuisine/blob/main/LICENSE.md] for details.
+<p>All Rights Reserved. See <a href="https://github.com/rekluzlabs/vaultcuisine/blob/main/LICENSE.md">LICENSE.md</a> for details.</p>
