@@ -1,5 +1,9 @@
 VaultCuisine
 
+<p align="center">  
+  <img width="550" alt="Reminera" src="[https://raw.githubusercontent.com/rekluzlabs/Reminera/main/1784605706900-removebg-preview.png](https://github.com/rekluzlabs/vaultcuisine/blob/main/icon4VC-removebg-preview.png)" />
+</p>
+
 A privacy-first Android app that turns your recipe cards — printed or handwritten — into clean,
 editable, structured recipes. Everything happens on-device: no cloud upload, no account, no
 tracking.
