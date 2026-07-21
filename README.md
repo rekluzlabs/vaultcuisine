@@ -51,7 +51,7 @@ Photo → ML Kit OCR → [Gemini Nano available?]
 
 Scanned recipes are never auto-finalized without a review step — since on-device OCR and small
 on-device models aren't perfect (especially on handwriting), every scan lands on an editable
-review screen before it's saved for good.
+review screen before it's saved in your recipes vault.
 
 <h2 align="center">App Preview</h2>
 
