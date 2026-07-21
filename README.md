@@ -79,7 +79,7 @@ parser — scanning still works everywhere, structuring quality just varies by d
 
 
 Project status
-"VaultCuisine is in early alpha (v0.1.1), so initial releases are strictly tech demos."
+"VaultCuisine is in early alpha testing(v0.1.1), so initial releases are strictly tech demos."
 
 Known limitations:
 
