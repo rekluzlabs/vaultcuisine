@@ -57,25 +57,6 @@ review screen before it's saved for good.
   <img src="images/vaultcuisine_preview.gif" width="300"/>
 </p>
 
-<style>
-@keyframes scrollCarousel {
-  0% { transform: translateX(0); }
-  20% { transform: translateX(0); }
-
-  25% { transform: translateX(-300px); }
-  45% { transform: translateX(-300px); }
-
-  50% { transform: translateX(-600px); }
-  70% { transform: translateX(-600px); }
-
-  75% { transform: translateX(-900px); }
-  95% { transform: translateX(-900px); }
-
-  100% { transform: translateX(0); }
-}
-</style>
-
-
 Tech stack
 
 
