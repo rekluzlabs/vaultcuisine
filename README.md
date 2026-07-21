@@ -53,19 +53,10 @@ review screen before it's saved for good.
 
 <h2 align="center">App Preview</h2>
 
+<h2 align="center">App Preview</h2>
+
 <p align="center">
-  <div style="width: 300px; height: 600px; overflow: hidden; border-radius: 16px; border: 1px solid #ccc; display: inline-block;">
-    <div style="
-      display: flex;
-      width: 1200px;
-      animation: scrollCarousel 16s infinite;
-    ">
-      <img src="images/Screenshot_1_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
-      <img src="images/Screenshot_2_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
-      <img src="images/Screenshot_3_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
-      <img src="images/Screenshot_4_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
-    </div>
-  </div>
+  <img src="images/vaultcuisine_preview.gif" width="300"/>
 </p>
 
 <style>
