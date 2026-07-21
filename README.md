@@ -78,18 +78,8 @@ other flagships). On unsupported devices, the app falls back automatically to th
 parser — scanning still works everywhere, structuring quality just varies by device.
 
 
-Getting started
-
-bashgit clone https://github.com/[your-username]/vaultcuisine.git
-cd vaultcuisine
-./gradlew assembleDebug
-
-Open in Android Studio and run on a device or emulator. Note: on-device AI structuring can only be
-tested on a real AICore-supported device — emulators don't support it.
-
 Project status
-
-VaultCuisine is in early, ALPHA development (v0.1.1) and not yet on the Play Store.
+"VaultCuisine is in early alpha (v0.1.1), so initial releases are strictly tech demos."
 
 Known limitations:
 
