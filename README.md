@@ -3,7 +3,7 @@ VaultCuisine
   <img width="550" alt="Reminera" src="https://raw.githubusercontent.com/rekluzlabs/Reminera/main/icon4VC-removebg-preview.png" />
 </p>
 
-A privacy-first Android app that turns your recipe cards — printed or handwritten — into clean,
+A privacy-first Android app that turns your recipe cards, either printed or handwritten into clean,
 editable, structured recipes. Everything happens on-device: no cloud upload, no account, no
 tracking.
 
@@ -22,7 +22,7 @@ Scanning, text recognition, and recipe structuring all run locally on your phone
 Features
 
 
-Scan any recipe — printed or handwritten, via camera or photo import
+Scan any recipe whether printed or handwritten, via camera or photo import
 On-device text recognition using ML Kit OCR
 On-device AI structuring using Gemini Nano (via Android AICore) where supported, with a
 deterministic regex-based fallback on devices without on-device GenAI support
@@ -35,8 +35,10 @@ Long-press menu as a precision/accessibility alternative to dragging
 
 
 
-100% offline — no network calls for scanning, recognition, or structuring
-No account, no analytics, no ads
+While I would love for this app to live 100% offline with no network calls I also plan to include an AI portion for photo recognition.
+The on device software is simply not powerful enough to scan and detect handwritten recipes. It works somewhat for scanning, recognition, and structuring
+of printed recipes, but to get the most benefits from this app, Google Gemini must be used to greatly improve the scanning interpretation of the recipes.
+Rekluz Labs will not collect analytics, and there will be no ads, no IAP, and no subscriptions. 
 
 
 How it works
@@ -87,7 +89,7 @@ tested on a real AICore-supported device — emulators don't support it.
 
 Project status
 
-VaultCuisine is in early, active development (v0.1.1) and not yet on the Play Store.
+VaultCuisine is in early, ALPHA development (v0.1.1) and not yet on the Play Store.
 
 Known limitations:
 
@@ -102,19 +104,18 @@ being tuned.
 Roadmap:
 
 
- Improve handwriting recognition accuracy
- Export/print formatting
+ Improve handwriting recognition accuracy. Online AI models being explored and tested.
+ Import/Export/print formatting
  [add other planned items]
 
 
 Privacy
 
-VaultCuisine does not collect, transmit, or store any data outside your device. All OCR and AI
-processing happens locally. See PRIVACY.md for details.
+VaultCuisine does not collect, transmit, or store any data outside your device. All OCR processing happens locally, however online AI processing of handwritten recipes will be a option. See PRIVACY.md for details.
 
 Contributing
 
-This is currently a solo-developed project. Issues and suggestions are welcome; PR guidelines TBD.
+This is currently a solo-developed project. Issues and suggestions are welcome; Beta testing dates TBD.
 
 License 
 
