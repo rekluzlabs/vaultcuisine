@@ -53,8 +53,6 @@ review screen before it's saved for good.
 
 <h2 align="center">App Preview</h2>
 
-<h2 align="center">App Preview</h2>
-
 <p align="center">
   <img src="images/vaultcuisine_preview.gif" width="300"/>
 </p>
