@@ -51,6 +51,42 @@ Scanned recipes are never auto-finalized without a review step — since on-devi
 on-device models aren't perfect (especially on handwriting), every scan lands on an editable
 review screen before it's saved for good.
 
+<h2 align="center">App Preview</h2>
+
+<p align="center">
+  <div style="width: 300px; height: 600px; overflow: hidden; border-radius: 16px; border: 1px solid #ccc; display: inline-block;">
+    <div style="
+      display: flex;
+      width: 1200px;
+      animation: scrollCarousel 16s infinite;
+    ">
+      <img src="images/Screenshot_1_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
+      <img src="images/Screenshot_2_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
+      <img src="images/Screenshot_3_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
+      <img src="images/Screenshot_4_VaultCuisine.jpg" style="width: 300px; height: 600px; object-fit: cover;" />
+    </div>
+  </div>
+</p>
+
+<style>
+@keyframes scrollCarousel {
+  0% { transform: translateX(0); }
+  20% { transform: translateX(0); }
+
+  25% { transform: translateX(-300px); }
+  45% { transform: translateX(-300px); }
+
+  50% { transform: translateX(-600px); }
+  70% { transform: translateX(-600px); }
+
+  75% { transform: translateX(-900px); }
+  95% { transform: translateX(-900px); }
+
+  100% { transform: translateX(0); }
+}
+</style>
+
+
 Tech stack
 
 
