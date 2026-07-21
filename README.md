@@ -1,6 +1,6 @@
 VaultCuisine
 <p align="center">  
-  <img width="550" alt="Reminera" src="https://raw.githubusercontent.com/rekluzlabs/Reminera/main/icon4VC-removebg-preview.png" />
+  <img width="550" alt="VaultCuisine" src="icon4VC-removebg-preview.png" />
 </p>
 
 A privacy-first Android app that turns your recipe cards, either printed or handwritten into clean,
