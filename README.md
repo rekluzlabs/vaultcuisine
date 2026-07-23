@@ -8,10 +8,6 @@ editable, structured recipes. Everything happens on-device: no cloud upload, no 
 tracking.
 
 
-Part of the Rekluz Labs app family, alongside NarraWeave.
-
-
-
 <!-- ![screenshot placeholder](docs/screenshot-1.png) -->
 Why VaultCuisine
 
