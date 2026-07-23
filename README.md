@@ -11,8 +11,7 @@ tracking.
 <!-- ![screenshot placeholder](docs/screenshot-1.png) -->
 Why VaultCuisine
 
-Recipe boxes, cookbook margins, and grandma's handwriting shouldn't have to live only on paper —
-but most "recipe scanner" apps ship your photos to a server to do the work. VaultCuisine doesn't.
+Recipe boxes, cookbook margins, and grandma's handwriting shouldn't have to live only on paper, but it seems that most "recipe scanner" apps ship your photos to a server to do the work. VaultCuisine doesn't.
 Scanning, text recognition, and recipe structuring all run locally on your phone.
 
 Features
