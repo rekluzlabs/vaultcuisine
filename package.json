@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@vectorize-io/opencode-hindsight": "^0.2.7"
+  }
+}

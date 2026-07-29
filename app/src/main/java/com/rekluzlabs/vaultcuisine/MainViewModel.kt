@@ -1,6 +1,12 @@
 package com.rekluzlabs.vaultcuisine
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -14,14 +20,19 @@ import com.rekluzlabs.vaultcuisine.ai.NetworkException
 import com.rekluzlabs.vaultcuisine.ai.NotARecipeException
 import com.rekluzlabs.vaultcuisine.ai.RateLimitException
 import com.rekluzlabs.vaultcuisine.data.AppSettings
+import com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
 import com.rekluzlabs.vaultcuisine.data.Recipe
 import com.rekluzlabs.vaultcuisine.data.RecipeExport
 import com.rekluzlabs.vaultcuisine.data.RecipeIngredient
 import com.rekluzlabs.vaultcuisine.data.RecipeStep
 import com.rekluzlabs.vaultcuisine.data.tryParseGeminiImport
 import com.rekluzlabs.vaultcuisine.ocr.TextRecognizerHelper
+import com.rekluzlabs.vaultcuisine.timer.ActiveTimer
+import com.rekluzlabs.vaultcuisine.timer.TimerBroadcastReceiver
+import com.rekluzlabs.vaultcuisine.timer.TimerRingService
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -64,6 +75,47 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     private val _newRecipeIds = mutableSetOf<String>()
 
+    // ── Gemini consent ──
+
+    private val _needsGeminiConsent = MutableStateFlow(false)
+    val needsGeminiConsent: StateFlow<Boolean> = _needsGeminiConsent
+
+    private val _isConsentFromSettings = MutableStateFlow(false)
+    val isConsentFromSettings: StateFlow<Boolean> = _isConsentFromSettings
+
+    private val _consentResult = Channel<Boolean>(Channel.CONFLATED)
+
+    fun acceptGeminiConsent() {
+        _settings.value = _settings.value.copy(geminiConsentAccepted = true)
+        prefs.save(_settings.value)
+        _needsGeminiConsent.value = false
+        _isConsentFromSettings.value = false
+        _consentResult.trySend(true)
+    }
+
+    fun rejectGeminiConsent() {
+        _needsGeminiConsent.value = false
+        _isConsentFromSettings.value = false
+        _consentResult.trySend(false)
+    }
+
+    fun reviewGeminiConsent() {
+        _isConsentFromSettings.value = true
+        _needsGeminiConsent.value = true
+    }
+
+    fun dismissGeminiConsentReview() {
+        _needsGeminiConsent.value = false
+        _isConsentFromSettings.value = false
+    }
+
+    /** Returns true if the caller should proceed with the Gemini call. */
+    private suspend fun awaitGeminiConsent(): Boolean {
+        if (_settings.value.geminiConsentAccepted) return true
+        _needsGeminiConsent.value = true
+        return _consentResult.receive()
+    }
+
     fun updateSettings(s: AppSettings) {
         _settings.value = s
         prefs.save(s)
@@ -73,10 +125,16 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     fun saveGeminiApiKey(key: String) {
         credentialStore.saveApiKey(key)
+        _settings.value = _settings.value.copy(geminiConsentAccepted = false)
+        prefs.save(_settings.value)
     }
 
     fun clearGeminiApiKey() {
         credentialStore.clearApiKey()
+    }
+
+    suspend fun validateGeminiApiKey(apiKey: String): Boolean {
+        return geminiClient.validateApiKey(apiKey)
     }
 
     fun getGeminiApiKey(): String? = credentialStore.getApiKey()
@@ -89,6 +147,36 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         val recipe = recipes.value.find { it.id == recipeId } ?: return
         _editingRecipe.value = recipe
         _editableLines.value = recipe.toEditableLines()
+        _editingTitle.value = recipe.title
+        _editingServings.value = recipe.servings
+        _editingNotes.value = if (recipe.notes == FALLBACK_NOTES_MESSAGE) null else recipe.notes
+    }
+
+    // ── Edit mode: title ──
+
+    private val _editingTitle = MutableStateFlow("")
+    val editingTitle: StateFlow<String> = _editingTitle
+
+    fun setEditingTitle(t: String) {
+        _editingTitle.value = t
+    }
+
+    // ── Edit mode: servings ──
+
+    private val _editingServings = MutableStateFlow<Int?>(null)
+    val editingServings: StateFlow<Int?> = _editingServings
+
+    fun setEditingServings(s: Int?) {
+        _editingServings.value = s
+    }
+
+    // ── Edit mode: notes ──
+
+    private val _editingNotes = MutableStateFlow<String?>(null)
+    val editingNotes: StateFlow<String?> = _editingNotes
+
+    fun setEditingNotes(text: String?) {
+        _editingNotes.value = text
     }
 
     fun saveEdits() {
@@ -121,14 +209,20 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         viewModelScope.launch {
             dao.upsert(
                 recipe.copy(
+                    title = _editingTitle.value,
+                    servings = _editingServings.value,
                     ingredients = ingredients,
                     steps = steps,
+                    notes = _editingNotes.value,
                     updatedAt = System.currentTimeMillis()
                 )
             )
             _newRecipeIds.remove(recipe.id)
             _editableLines.value = null
             _editingRecipe.value = null
+            _editingTitle.value = ""
+            _editingServings.value = null
+            _editingNotes.value = null
         }
     }
 
@@ -137,6 +231,9 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         val wasNew = _newRecipeIds.remove(recipe.id)
         _editableLines.value = null
         _editingRecipe.value = null
+        _editingTitle.value = ""
+        _editingServings.value = null
+        _editingNotes.value = null
         if (wasNew) {
             viewModelScope.launch {
                 dao.deleteById(recipe.id)
@@ -283,11 +380,15 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                     null
                 }
                 if (imageBytes != null) {
-                    // Tier 1: Gemini image mode
-                    runGeminiImageMode(rawText, imageBytes)
+                    // Tier 1: Gemini image mode (with consent gate)
+                    if (awaitGeminiConsent()) {
+                        runGeminiImageMode(rawText, imageBytes, settings.value.geminiModelId)
+                    } else {
+                        HeuristicStructurer().structure(rawText)
+                    }
                 } else {
                     // Tier 2: Gemini text mode (image bytes unavailable)
-                    runGeminiTextMode(rawText)
+                    runGeminiTextMode(rawText, settings.value.geminiModelId)
                 }
             } else {
                 // Tier 3: heuristic
@@ -302,9 +403,9 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
-    private suspend fun runGeminiImageMode(rawText: String, imageBytes: ByteArray): Recipe {
+    private suspend fun runGeminiImageMode(rawText: String, imageBytes: ByteArray, modelId: String): Recipe {
         return try {
-            geminiClient.structureFromImage(imageBytes)
+            geminiClient.structureFromImage(imageBytes, modelId)
         } catch (e: MissingApiKeyException) {
             HeuristicStructurer().structure(rawText)
         } catch (e: NotARecipeException) {
@@ -324,9 +425,9 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
-    private suspend fun runGeminiTextMode(rawText: String): Recipe {
+    private suspend fun runGeminiTextMode(rawText: String, modelId: String): Recipe {
         return try {
-            geminiClient.structure(rawText)
+            geminiClient.structure(rawText, modelId)
         } catch (_: Exception) {
             HeuristicStructurer().structure(rawText)
         }
@@ -364,6 +465,162 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
+    fun setRecipeRating(recipeId: String, rating: Int?) {
+        viewModelScope.launch {
+            val recipe = dao.getById(recipeId) ?: return@launch
+            dao.upsert(recipe.copy(rating = rating))
+        }
+    }
+
+    fun setRecipeUnitSystem(recipeId: String, system: com.rekluzlabs.vaultcuisine.util.UnitSystem) {
+        viewModelScope.launch {
+            val recipe = dao.getById(recipeId) ?: return@launch
+            dao.upsert(recipe.copy(preferredUnitSystem = system))
+        }
+    }
+
+    // ── Cooking Mode timers ──
+
+    private val _activeTimers = MutableStateFlow<Map<String, ActiveTimer>>(emptyMap())
+    val activeTimers: StateFlow<Map<String, ActiveTimer>> = _activeTimers
+
+    private val _ringingTimers = MutableStateFlow<Set<String>>(emptySet())
+    val ringingTimers: StateFlow<Set<String>> = _ringingTimers
+
+    private var tickJob: kotlinx.coroutines.Job? = null
+
+    private fun startTick() {
+        if (tickJob?.isActive == true) return
+        tickJob = viewModelScope.launch {
+            try {
+                while (true) {
+                    kotlinx.coroutines.delay(1000)
+                    val now = System.currentTimeMillis()
+                    val current = _activeTimers.value
+                    val updated = mutableMapOf<String, ActiveTimer>()
+                    var anyRunning = false
+                    for ((key, timer) in current) {
+                        if (timer.endTimeMillis > now) {
+                            anyRunning = true
+                            updated[key] = timer.copy()
+                        }
+                    }
+                    _activeTimers.value = updated
+                    if (!anyRunning) return@launch
+                }
+            } finally {
+                tickJob = null
+            }
+        }
+    }
+
+    fun startTimer(context: Context, recipeId: String, stepIndex: Int, stepText: String, durationSeconds: Int) {
+        val endTime = System.currentTimeMillis() + durationSeconds * 1000L
+        val timer = ActiveTimer(recipeId, stepIndex, stepText, endTime, durationSeconds)
+        val key = "${recipeId}_$stepIndex"
+
+        _activeTimers.value = _activeTimers.value + (key to timer)
+
+        val prefs = context.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putLong(timer.timerKey, endTime).apply()
+        prefs.edit().putString("${timer.timerKey}_text", stepText).apply()
+        prefs.edit().putInt("${timer.timerKey}_total", durationSeconds).apply()
+
+        scheduleAlarm(context, recipeId, stepIndex, stepText, endTime)
+
+        startTick()
+    }
+
+    private fun scheduleAlarm(context: Context, recipeId: String, stepIndex: Int, stepText: String, triggerAtMillis: Long) {
+        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, TimerBroadcastReceiver::class.java).apply {
+            action = TimerBroadcastReceiver.ACTION_TIMER_DONE
+            putExtra(TimerBroadcastReceiver.EXTRA_RECIPE_ID, recipeId)
+            putExtra(TimerBroadcastReceiver.EXTRA_STEP_INDEX, stepIndex)
+            putExtra(TimerBroadcastReceiver.EXTRA_STEP_TEXT, stepText)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, recipeId.hashCode() + stepIndex, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        if (Build.VERSION.SDK_INT < 31 || am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
+        }
+    }
+
+    fun cancelTimer(context: Context, recipeId: String, stepIndex: Int) {
+        val key = "${recipeId}_$stepIndex"
+        _activeTimers.value = _activeTimers.value - key
+        val prefs = app.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove("timer_${recipeId}_$stepIndex").apply()
+        prefs.edit().remove("timer_${recipeId}_${stepIndex}_text").apply()
+        prefs.edit().remove("timer_${recipeId}_${stepIndex}_total").apply()
+
+        val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, TimerBroadcastReceiver::class.java).apply {
+            action = TimerBroadcastReceiver.ACTION_TIMER_DONE
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, recipeId.hashCode() + stepIndex, intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        am.cancel(pendingIntent)
+    }
+
+    fun clearTimer(context: Context, recipeId: String, stepIndex: Int) {
+        cancelTimer(context, recipeId, stepIndex)
+        dismissAlarm(context, recipeId, stepIndex)
+    }
+
+    fun loadActiveTimers() {
+        val prefs = app.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+        val all = prefs.all
+        val timers = mutableMapOf<String, ActiveTimer>()
+        all.forEach { (key, _) ->
+            if (key.startsWith("timer_") && !key.endsWith("_text") && !key.endsWith("_total")) {
+                val endTime = prefs.getLong(key, 0)
+                if (endTime > System.currentTimeMillis()) {
+                    val parts = key.removePrefix("timer_").split("_")
+                    if (parts.size >= 2) {
+                        val recipeId = parts.dropLast(1).joinToString("_")
+                        val stepIndex = parts.last().toIntOrNull() ?: return@forEach
+                        val stepText = prefs.getString("${key}_text", "Timer") ?: "Timer"
+                        val total = prefs.getInt("${key}_total", 0)
+                        val mapKey = "${recipeId}_$stepIndex"
+                        timers[mapKey] = ActiveTimer(recipeId, stepIndex, stepText, endTime, total)
+                    }
+                }
+            }
+        }
+        _activeTimers.value = timers
+        if (timers.isNotEmpty()) startTick()
+        loadRingingTimers()
+    }
+
+    fun loadRingingTimers() {
+        val prefs = app.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+        val all = prefs.all
+        val ringing = mutableSetOf<String>()
+        all.forEach { (key, _) ->
+            if (key.startsWith("ringing_")) {
+                val mapKey = key.removePrefix("ringing_")
+                ringing.add(mapKey)
+            }
+        }
+        _ringingTimers.value = ringing
+    }
+
+    fun dismissAlarm(context: Context, recipeId: String, stepIndex: Int) {
+        val mapKey = "${recipeId}_$stepIndex"
+        _ringingTimers.value = _ringingTimers.value - mapKey
+        val prefs = app.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove("ringing_${recipeId}_$stepIndex").apply()
+        context.stopService(Intent(context, TimerRingService::class.java))
+    }
+
     /**
      * Re-runs Gemini structuring on an already-saved recipe's original image.
      * Does NOT modify the existing saved recipe — the new result is saved
@@ -395,8 +652,23 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             val imageBytes = imageFile.readBytes()
             val preparedBytes = imagePreprocessor.prepareForUpload(imageBytes)
 
+            if (!awaitGeminiConsent()) {
+                try {
+                    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                    val rawText = ocr.recognizeText(bitmap)
+                    val scanned = HeuristicStructurer().structure(rawText)
+                    val saved = scanned.copy(sourceImagePath = imagePath, notes = recipe.notes)
+                    dao.upsert(saved)
+                    _newRecipeIds.add(saved.id)
+                    onNewRecipeId(saved.id)
+                } catch (_: Exception) {
+                    _userMessages.tryEmit("Can't re-scan without consent. Enable it in Settings to use AI structuring.")
+                }
+                return@launch
+            }
+
             val newRecipe = try {
-                geminiClient.structureFromImage(preparedBytes)
+                geminiClient.structureFromImage(preparedBytes, settings.value.geminiModelId)
             } catch (e: MissingApiKeyException) {
                 _userMessages.tryEmit("No Gemini API key configured. Add one in Settings to re-scan with AI.")
                 return@launch
@@ -419,7 +691,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             }
 
             // Point the new result at the same original image; don't re-persist.
-            val saved = newRecipe.copy(sourceImagePath = imagePath)
+            val saved = newRecipe.copy(sourceImagePath = imagePath, notes = recipe.notes)
             dao.upsert(saved)
             _newRecipeIds.add(saved.id)
             onNewRecipeId(saved.id)

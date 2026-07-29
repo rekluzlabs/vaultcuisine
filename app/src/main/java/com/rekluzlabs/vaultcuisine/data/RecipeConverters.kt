@@ -1,6 +1,7 @@
 package com.rekluzlabs.vaultcuisine.data
 
 import androidx.room.TypeConverter
+import com.rekluzlabs.vaultcuisine.util.UnitSystem
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -10,6 +11,13 @@ import kotlinx.serialization.json.Json
  */
 class RecipeConverters {
     private val json = Json { ignoreUnknownKeys = true }
+
+    @TypeConverter
+    fun fromUnitSystem(value: UnitSystem): String = value.name
+
+    @TypeConverter
+    fun toUnitSystem(value: String): UnitSystem =
+        try { UnitSystem.valueOf(value) } catch (_: Exception) { UnitSystem.AS_WRITTEN }
 
     @TypeConverter
     fun fromIngredients(list: List<RecipeIngredient>): String = json.encodeToString(list)

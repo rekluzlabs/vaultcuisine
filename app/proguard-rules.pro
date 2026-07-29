@@ -33,3 +33,16 @@
 -keep class okhttp3.** { *; }
 -keep class okio.** { *; }
 
+# Tink / security-crypto (EncryptedSharedPreferences for BYOK key storage)
+-keep class com.google.crypto.tink.** { *; }
+-keep interface com.google.crypto.tink.** { *; }
+-keepclassmembers class com.google.crypto.tink.** { *; }
+-dontwarn com.google.crypto.tink.**
+# EncryptedSharedPreferences uses reflection to instantiate key/value schemes
+-keep class androidx.security.crypto.** { *; }
+-dontwarn androidx.security.crypto.**
+
+# Room DAOs — keep interfaces so generated _Impl classes resolve correctly
+-keep interface com.rekluzlabs.vaultcuisine.**.*Dao { *; }
+-keep class com.rekluzlabs.vaultcuisine.**.*Dao_Impl { *; }
+

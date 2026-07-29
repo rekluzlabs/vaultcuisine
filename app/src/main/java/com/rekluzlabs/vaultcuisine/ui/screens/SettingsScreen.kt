@@ -19,12 +19,16 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
@@ -58,7 +62,10 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.rekluzlabs.vaultcuisine.R
+import com.rekluzlabs.vaultcuisine.ai.GeminiModels
+import com.rekluzlabs.vaultcuisine.ai.GeminiModelVariant
 import com.rekluzlabs.vaultcuisine.data.AppSettings
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,6 +75,8 @@ fun SettingsScreen(
     hasGeminiKey: Boolean,
     onSaveGeminiKey: (String) -> Unit,
     onClearGeminiKey: () -> Unit,
+    onValidateKey: suspend (String) -> Boolean,
+    onReviewPrivacyInfo: () -> Unit = {},
     onExportRecipes: () -> Unit,
     onImportRecipes: () -> Unit,
     onClearAllData: () -> Unit,
@@ -75,8 +84,8 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var showClearDialog by remember { mutableStateOf(false) }
-    var apiKeyInput by remember { mutableStateOf("") }
-    var showApiKey by remember { mutableStateOf(false) }
+    var showClearKeysDialog by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
 
     if (showClearDialog) {
         AlertDialog(
@@ -91,6 +100,41 @@ fun SettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    if (showClearKeysDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearKeysDialog = false },
+            title = { Text("Delete all API keys?") },
+            text = { Text("This will remove all stored AI provider keys. You will need to re-enter them to use AI features.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearKeysDialog = false
+                    onClearGeminiKey()
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearKeysDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showApiKeyDialog) {
+        GeminiApiKeyDialog(
+            currentKey = if (hasGeminiKey) "PRESENT" else "",
+            onDismiss = { showApiKeyDialog = false },
+            onSave = {
+                onSaveGeminiKey(it)
+                showApiKeyDialog = false
+            },
+            onClear = {
+                onClearGeminiKey()
+                showApiKeyDialog = false
+            },
+            onValidate = onValidateKey
         )
     }
 
@@ -138,58 +182,57 @@ fun SettingsScreen(
             SectionHeader("Gemini API")
 
             Text(
-                text = "Used to read and structure scanned recipe images. Your key is stored encrypted on this device. Images are sent to Google's Gemini API for processing when this is configured.",
+                text = "Used to read and structure scanned recipe images. Images are sent to Google's Gemini API for processing when configured.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            OutlinedTextField(
-                value = apiKeyInput,
-                onValueChange = { apiKeyInput = it },
-                label = { Text("API Key") },
-                placeholder = { if (hasGeminiKey) Text("•".repeat(24)) else Text("Enter your Gemini API key") },
-                singleLine = true,
-                visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailingIcon = {
-                    Row {
-                        IconButton(onClick = { showApiKey = !showApiKey }) {
-                            Icon(
-                                if (showApiKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                contentDescription = if (showApiKey) "Hide key" else "Show key"
-                            )
-                        }
-                        if (hasGeminiKey) {
-                            IconButton(onClick = {
-                                onClearGeminiKey()
-                                apiKeyInput = ""
-                            }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "Clear key")
-                            }
-                        }
-                    }
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = { if (apiKeyInput.isNotBlank()) onSaveGeminiKey(apiKeyInput.trim()) }
-                ),
-                modifier = Modifier.fillMaxWidth()
+            SettingsDropdown(
+                label = "AI Model",
+                value = settings.geminiModelId,
+                options = GeminiModels.variants.map { it.id to it.displayName },
+                onValueChanged = {
+                    onSettingsChanged(settings.copy(geminiModelId = it))
+                    showApiKeyDialog = true
+                }
             )
 
-            Spacer(Modifier.height(8.dp))
-
-            Button(
-                onClick = {
-                    if (apiKeyInput.isNotBlank()) onSaveGeminiKey(apiKeyInput.trim())
-                },
-                enabled = apiKeyInput.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (hasGeminiKey) "Update Key" else "Save Key")
+            if (hasGeminiKey) {
+                OutlinedButton(
+                    onClick = { showApiKeyDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Update API Key")
+                }
+            } else {
+                Button(
+                    onClick = { showApiKeyDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Configure API Key")
+                }
             }
+
+            if (hasGeminiKey) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showClearKeysDialog = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Delete API Key", color = MaterialTheme.colorScheme.error)
+                }
+            }
+
+            Text(
+                text = "Review privacy info",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline,
+                modifier = Modifier
+                    .clickable { onReviewPrivacyInfo() }
+                    .padding(top = 8.dp)
+            )
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
@@ -201,7 +244,12 @@ fun SettingsScreen(
             SettingsDropdown(
                 label = "Theme",
                 value = settings.theme,
-                options = listOf("system" to "System default", "light" to "Light", "dark" to "Dark", "amoled" to "Amoled Black"),
+                options = listOf(
+                    "pantry" to "Pantry (Light)",
+                    "cellar" to "Cellar (Dark)",
+                    "vault" to "Deep Vault (AMOLED)",
+                    "garden" to "Garden Fresh (Green)"
+                ),
                 onValueChanged = { onSettingsChanged(settings.copy(theme = it)) }
             )
 
@@ -313,6 +361,132 @@ fun SettingsScreen(
             Spacer(Modifier.height(32.dp))
         }
     }
+}
+
+@Composable
+fun GeminiApiKeyDialog(
+    currentKey: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+    onClear: () -> Unit,
+    onValidate: suspend (String) -> Boolean
+) {
+    val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var apiKeyInput by remember { mutableStateOf("") }
+    var showApiKey by remember { mutableStateOf(false) }
+    var isValidating by remember { mutableStateOf(false) }
+    var validationResult by remember { mutableStateOf<Boolean?>(null) }
+    var showValidationError by remember { mutableStateOf(false) }
+
+    if (showValidationError) {
+        AlertDialog(
+            onDismissRequest = { showValidationError = false },
+            title = { Text("Validation Failed") },
+            text = { Text("The API key you entered was not accepted by Gemini. Please check the key and your connection and try again.") },
+            confirmButton = {
+                TextButton(onClick = { showValidationError = false }) { Text("OK") }
+            }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Configure Gemini API") },
+        text = {
+            Column {
+                Text(
+                    text = GeminiModels.KEY_INSTRUCTIONS,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Text(
+                    text = "Get API Key",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier
+                        .clickable {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(GeminiModels.KEY_OBTAIN_URL))
+                            context.startActivity(intent)
+                        }
+                        .padding(vertical = 8.dp)
+                )
+
+                Spacer(Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = apiKeyInput,
+                    onValueChange = { 
+                        apiKeyInput = it
+                        validationResult = null // Reset validation on change
+                    },
+                    label = { Text("API Key") },
+                    placeholder = { if (currentKey.isNotEmpty()) Text("••••••••••••••••") else Text("Enter key") },
+                    singleLine = true,
+                    visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isValidating) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                            } else if (validationResult == true) {
+                                Icon(Icons.Filled.CheckCircle, "Verified", tint = androidx.compose.ui.graphics.Color(0xFF4CAF50))
+                                Text("Verified", color = androidx.compose.ui.graphics.Color(0xFF4CAF50), style = MaterialTheme.typography.labelSmall)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            IconButton(onClick = { showApiKey = !showApiKey }) {
+                                Icon(
+                                    if (showApiKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = "Toggle Visibility"
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { 
+                    if (apiKeyInput.isNotBlank()) {
+                        scope.launch {
+                            isValidating = true
+                            val isValid = onValidate(apiKeyInput.trim())
+                            isValidating = false
+                            validationResult = isValid
+                            if (isValid) {
+                                onSave(apiKeyInput.trim())
+                            } else {
+                                showValidationError = true
+                            }
+                        }
+                    }
+                },
+                enabled = apiKeyInput.isNotBlank() && !isValidating
+            ) {
+                if (isValidating) {
+                    Text("Verifying...")
+                } else {
+                    Text("Verify & Save")
+                }
+            }
+        },
+        dismissButton = {
+            Row {
+                if (currentKey.isNotEmpty()) {
+                    TextButton(onClick = onClear) {
+                        Text("Clear Key", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
 }
 
 @Composable

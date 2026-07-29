@@ -60,7 +60,7 @@ object RecipePrinter {
             </head>
             <body>
                 <h1>${escape(recipe.title)}</h1>
-                <p>Servings: ${recipe.servings}</p>
+                <p>Servings: ${recipe.servings ?: "—"}</p>
                 <h2>Ingredients</h2>
                 <ul>$ingredientsHtml</ul>
                 <h2>Instructions</h2>

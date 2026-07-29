@@ -8,7 +8,7 @@ import androidx.room.TypeConverters
 import com.rekluzlabs.vaultcuisine.data.Recipe
 import com.rekluzlabs.vaultcuisine.data.RecipeConverters
 
-@Database(entities = [Recipe::class], version = 3, exportSchema = false)
+@Database(entities = [Recipe::class], version = 6, exportSchema = false)
 @TypeConverters(RecipeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recipeDao(): RecipeDao

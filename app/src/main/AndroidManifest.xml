@@ -8,6 +8,13 @@
     <!-- Gemini API (opt-in, gated behind API key configuration) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Cooking Mode timers -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <application
         android:name=".VaultCuisineApp"
         android:allowBackup="true"
@@ -28,6 +35,15 @@
         </activity>
 
         <!-- Required for exporting/sharing files (PDF, JSON) via FileProvider -->
+        <receiver
+            android:name=".timer.TimerBroadcastReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".timer.TimerRingService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

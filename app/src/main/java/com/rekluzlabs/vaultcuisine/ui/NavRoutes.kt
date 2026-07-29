@@ -10,5 +10,8 @@ sealed class NavRoutes(val route: String) {
     object RecipeDetail : NavRoutes("recipe_detail/{recipeId}") {
         fun build(recipeId: String) = "recipe_detail/$recipeId"
     }
+    object Cooking : NavRoutes("cooking/{recipeId}?step={step}") {
+        fun build(recipeId: String, step: Int = 0) = "cooking/$recipeId?step=$step"
+    }
     object Settings : NavRoutes("settings")
 }

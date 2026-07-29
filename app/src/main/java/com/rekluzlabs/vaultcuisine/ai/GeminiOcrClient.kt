@@ -87,23 +87,47 @@ class GeminiOcrClient(
 ) : RecipeStructurer, ImageCapableStructurer {
 
     override suspend fun structure(rawText: String): Recipe {
+        if (!credentialStore.hasApiKey()) throw MissingApiKeyException()
+        // Default to a sane model if none provided (legacy compatibility or safety)
+        return structure(rawText, "gemini-2.5-flash")
+    }
+
+    suspend fun structure(rawText: String, modelId: String): Recipe {
         val apiKey = credentialStore.getApiKey() ?: throw MissingApiKeyException()
         val prompt = buildTextPrompt(rawText)
-        val responseJson = callGeminiApi(apiKey, prompt, imageBytes = null)
+        val responseJson = callGeminiApi(apiKey, modelId, prompt, imageBytes = null)
         val dto = parseResponseText(responseJson)
         return dto.toRecipe()
     }
 
     override suspend fun structureFromImage(imageBytes: ByteArray): Recipe {
+        // Default to a sane model if none provided
+        return structureFromImage(imageBytes, "gemini-2.5-flash")
+    }
+
+    suspend fun structureFromImage(imageBytes: ByteArray, modelId: String): Recipe {
         val apiKey = credentialStore.getApiKey() ?: throw MissingApiKeyException()
         val processed = imagePreprocessor.prepareForUpload(imageBytes)
         val prompt = buildImagePrompt()
-        val responseJson = callGeminiApi(apiKey, prompt, processed)
+        val responseJson = callGeminiApi(apiKey, modelId, prompt, processed)
         val dto = parseResponseText(responseJson)
         return dto.toRecipe()
     }
 
-    private suspend fun callGeminiApi(apiKey: String, textPart: String, imageBytes: ByteArray?): String {
+    suspend fun validateApiKey(apiKey: String): Boolean = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url("https://generativelanguage.googleapis.com/v1beta/models?key=$apiKey")
+            .get()
+            .build()
+        try {
+            val response = okHttpClient.newCall(request).execute()
+            response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private suspend fun callGeminiApi(apiKey: String, modelId: String, textPart: String, imageBytes: ByteArray?): String {
         val parts = buildJsonArray {
             if (imageBytes != null) {
                 val base64 = Base64.getEncoder().encodeToString(imageBytes)
@@ -129,7 +153,7 @@ class GeminiOcrClient(
 
         val bodyString = requestBody.toString()
         val request = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=$apiKey")
             .post(bodyString.toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -191,7 +215,7 @@ Return ONLY valid JSON, no markdown fences, no preamble, matching exactly this s
 }
 Rules:
 - If servings isn't stated, use 4.
-- If a step implies a wait/cook time, set timer_seconds accordingly; otherwise null.
+- timer_seconds: populate ONLY when the step has ONE clear, dominant, actionable wait/cook duration. Return null if the step mentions multiple different durations or covers multiple sub-actions with different timings — do not sum or guess.
 - Do not invent ingredients or steps that aren't visible in the image.
 - If the image isn't a recipe (blurry, wrong subject, receipt, etc), set is_recipe: false.
 """.trimIndent()
@@ -212,7 +236,7 @@ Return ONLY valid JSON, no markdown fences, no preamble, matching exactly this s
 }
 Rules:
 - If servings isn't stated, use 4.
-- If a step implies a wait/cook time, set timer_seconds accordingly; otherwise null.
+- timer_seconds: populate ONLY when the step has ONE clear, dominant, actionable wait/cook duration. Return null if the step mentions multiple different durations or covers multiple sub-actions with different timings — do not sum or guess.
 - Do not invent ingredients or steps that aren't in the text.
 
 OCR TEXT:

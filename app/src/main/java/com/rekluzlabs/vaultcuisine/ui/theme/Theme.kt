@@ -6,38 +6,80 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
-private val DarkColors = darkColorScheme(
-    primary = VaultAccent,
-    background = VaultSurfaceDark,
-    surface = VaultSurfaceDark
+private val PantryColors = lightColorScheme(
+    primary = FreshMint,
+    onPrimary = PantryText,
+    secondary = SoftCherry,
+    onSecondary = PantryText,
+    background = PantryBackground,
+    onBackground = PantryText,
+    surface = PantrySurface,
+    onSurface = PantryText,
+    surfaceVariant = PantryBackground,
+    onSurfaceVariant = PantryText
 )
 
-private val LightColors = lightColorScheme(
-    primary = VaultAccent,
-    background = VaultSurfaceLight,
-    surface = VaultSurfaceLight
+private val CellarColors = darkColorScheme(
+    primary = FreshMint,
+    onPrimary = CellarBackground,
+    secondary = SoftCherry,
+    onSecondary = CellarBackground,
+    background = CellarBackground,
+    onBackground = CellarText,
+    surface = CellarSurface,
+    onSurface = CellarText,
+    surfaceVariant = CellarBackground,
+    onSurfaceVariant = CellarText
 )
 
-private val AmoledColors = darkColorScheme(
-    primary = VaultAccent,
-    background = VaultSurfaceAmoled,
-    surface = VaultSurfaceAmoled,
-    surfaceContainerLow = VaultSurfaceAmoled,
-    surfaceContainer = VaultSurfaceAmoled,
-    surfaceContainerHigh = VaultSurfaceAmoled,
-    surfaceContainerHighest = VaultSurfaceAmoled
+private val DeepVaultColors = darkColorScheme(
+    primary = FreshMint,
+    onPrimary = VaultBackground,
+    secondary = SoftCherry,
+    onSecondary = VaultBackground,
+    background = VaultBackground,
+    onBackground = VaultText,
+    surface = VaultSurface,
+    onSurface = VaultText,
+    surfaceVariant = VaultBackground,
+    onSurfaceVariant = VaultText,
+    surfaceContainerLow = VaultBackground,
+    surfaceContainer = VaultBackground,
+    surfaceContainerHigh = VaultBackground,
+    surfaceContainerHighest = VaultBackground
+)
+
+private val GardenFreshColors = lightColorScheme(
+    primary = FreshMint,
+    onPrimary = GardenText,
+    secondary = SoftCherry,
+    onSecondary = GardenText,
+    background = GardenBackground,
+    onBackground = GardenText,
+    surface = GardenSurface,
+    onSurface = GardenText,
+    surfaceVariant = GardenBackground,
+    onSurfaceVariant = GardenText
 )
 
 @Composable
 fun VaultCuisineTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    amoled: Boolean = false,
+    themeMode: String = "pantry",
     content: @Composable () -> Unit
 ) {
-    val colors = when {
-        amoled -> AmoledColors
-        darkTheme -> DarkColors
-        else -> LightColors
+    val colors = when (themeMode) {
+        "pantry" -> PantryColors
+        "cellar" -> CellarColors
+        "vault" -> DeepVaultColors
+        "garden" -> GardenFreshColors
+        else -> {
+            if (isSystemInDarkTheme()) CellarColors else PantryColors
+        }
     }
-    MaterialTheme(colorScheme = colors, typography = Typography, content = content)
+
+    MaterialTheme(
+        colorScheme = colors,
+        typography = Typography,
+        content = content
+    )
 }

@@ -157,20 +157,6 @@ class HeuristicStructurer : RecipeStructurer {
         return trimmed.ifBlank { null }
     }
 
-    /** Sums minutes/seconds/hours mentioned in a step into one timer duration. */
-    private fun extractTimerSeconds(text: String): Int? {
-        val minuteMatch = Regex("(\\d+)\\s*(mins?|minutes?)", RegexOption.IGNORE_CASE).find(text)
-        val secondMatch = Regex("(\\d+)\\s*(secs?|seconds?)", RegexOption.IGNORE_CASE).find(text)
-        val hourMatch = Regex("(\\d+)\\s*(hrs?|hours?)", RegexOption.IGNORE_CASE).find(text)
-
-        var totalSeconds = 0
-        minuteMatch?.groupValues?.get(1)?.toIntOrNull()?.let { totalSeconds += it * 60 }
-        secondMatch?.groupValues?.get(1)?.toIntOrNull()?.let { totalSeconds += it }
-        hourMatch?.groupValues?.get(1)?.toIntOrNull()?.let { totalSeconds += it * 3600 }
-
-        return totalSeconds.takeIf { it > 0 }
-    }
-
     /**
      * Unbreakable fallback: if parsing produces nothing usable, hand the
      * user the normalized raw text as a single step with a note explaining
@@ -186,7 +172,21 @@ class HeuristicStructurer : RecipeStructurer {
             steps = listOf(
                 RecipeStep(id = UUID.randomUUID().toString(), text = normalized, timerSeconds = null)
             ),
-            notes = "Couldn't automatically structure this scan. Please edit the fields above manually."
+            notes = com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
         )
     }
+}
+
+/** Sums minutes/seconds/hours mentioned in a step into one timer duration. */
+fun extractTimerSeconds(text: String): Int? {
+    val minuteMatch = Regex("(\\d+)\\s*(mins?|minutes?)", RegexOption.IGNORE_CASE).find(text)
+    val secondMatch = Regex("(\\d+)\\s*(secs?|seconds?)", RegexOption.IGNORE_CASE).find(text)
+    val hourMatch = Regex("(\\d+)\\s*(hrs?|hours?)", RegexOption.IGNORE_CASE).find(text)
+
+    var totalSeconds = 0
+    minuteMatch?.groupValues?.get(1)?.toIntOrNull()?.let { totalSeconds += it * 60 }
+    secondMatch?.groupValues?.get(1)?.toIntOrNull()?.let { totalSeconds += it }
+    hourMatch?.groupValues?.get(1)?.toIntOrNull()?.let { totalSeconds += it * 3600 }
+
+    return totalSeconds.takeIf { it > 0 }
 }

@@ -18,17 +18,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
@@ -54,7 +60,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -62,19 +72,25 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.rekluzlabs.vaultcuisine.R
 import com.rekluzlabs.vaultcuisine.MainViewModel
 import com.rekluzlabs.vaultcuisine.SectionType
+import com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
 import com.rekluzlabs.vaultcuisine.data.Recipe
+import com.rekluzlabs.vaultcuisine.util.AmountParser
+import com.rekluzlabs.vaultcuisine.util.UnitConverter
+import com.rekluzlabs.vaultcuisine.util.UnitSystem
 import com.rekluzlabs.vaultcuisine.print.RecipePrinter
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val dateFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy  h:mm a")
@@ -90,7 +106,8 @@ fun RecipeDetailScreen(
     vm: MainViewModel,
     isNewRecipe: Boolean = false,
     onBack: () -> Unit,
-    onReScan: ((newRecipeId: String) -> Unit)? = null
+    onReScan: ((newRecipeId: String) -> Unit)? = null,
+    onStartCooking: (() -> Unit)? = null
 ) {
     val recipes by vm.recipes.collectAsState()
     val recipe = recipes.find { it.id == recipeId }
@@ -98,6 +115,7 @@ fun RecipeDetailScreen(
 
     var isEditing by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -143,7 +161,7 @@ fun RecipeDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(recipe.title) },
+                title = { Text(if (editableLines != null) "Edit Recipe" else "Recipe") },
                 navigationIcon = {
                     IconButton(onClick = handleBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -170,18 +188,51 @@ fun RecipeDetailScreen(
                                 Icon(Icons.Default.Refresh, contentDescription = "Re-scan with AI")
                             }
                         }
-                        IconButton(onClick = { /* TODO: share sheet */ }) {
-                            Icon(Icons.Default.Share, contentDescription = "Share recipe")
+                        if (onStartCooking != null && recipe.steps.isNotEmpty()) {
+                            IconButton(onClick = onStartCooking) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Start Cooking")
+                            }
                         }
-                        IconButton(onClick = { RecipePrinter.print(context, recipe) }) {
-                            Icon(Icons.Default.Print, contentDescription = "Print recipe")
-                        }
-                        IconButton(onClick = { showDeleteDialog = true }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Delete recipe",
-                                tint = MaterialTheme.colorScheme.error
-                            )
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Share") },
+                                    onClick = { 
+                                        showMoreMenu = false
+                                        /* TODO: share sheet */ 
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Share, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Print") },
+                                    onClick = { 
+                                        showMoreMenu = false
+                                        RecipePrinter.print(context, recipe) 
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Print, null) }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    onClick = { 
+                                        showMoreMenu = false
+                                        showDeleteDialog = true 
+                                    },
+                                    leadingIcon = { 
+                                        Icon(
+                                            Icons.Default.Delete, 
+                                            null, 
+                                            tint = MaterialTheme.colorScheme.error
+                                        ) 
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -198,6 +249,7 @@ fun RecipeDetailScreen(
         } else {
             ViewModeContent(
                 recipe = recipe,
+                vm = vm,
                 modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
             )
         }
@@ -228,23 +280,189 @@ private fun DeleteRecipeDialog(
 }
 
 @Composable
-private fun ViewModeContent(recipe: Recipe, modifier: Modifier = Modifier) {
+private fun ViewModeContent(
+    recipe: Recipe,
+    vm: MainViewModel,
+    modifier: Modifier = Modifier
+) {
+    val baseServings = recipe.servings
+    var targetServings by remember(baseServings) { mutableStateOf(baseServings ?: 1) }
+
     LazyColumn(modifier) {
-        item { Text("Servings: ${recipe.servings}", style = MaterialTheme.typography.bodyLarge) }
+        item {
+            Text(
+                text = recipe.title,
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
+        // ── Scaling + unit conversion toggle row ──
+        item {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Servings: ${baseServings ?: "—"}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (baseServings != null && baseServings > 0) {
+                        IconButton(
+                            onClick = { if (targetServings > 1) targetServings-- },
+                            enabled = targetServings > 1
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "Decrease servings")
+                        }
+                        Text("$targetServings", style = MaterialTheme.typography.bodyLarge)
+                        IconButton(
+                            onClick = { targetServings++ },
+                            enabled = targetServings < 99
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Increase servings")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Units:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    UnitSystem.entries.forEach { system ->
+                        val selected = recipe.preferredUnitSystem == system
+                        TextButton(
+                            onClick = { vm.setRecipeUnitSystem(recipe.id, system) }
+                        ) {
+                            Text(
+                                text = when (system) {
+                                    UnitSystem.AS_WRITTEN -> "As written"
+                                    UnitSystem.METRIC -> "Metric"
+                                    UnitSystem.IMPERIAL -> "Imperial"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        if (baseServings == null) {
+            item {
+                Text(
+                    text = "Add a serving count in edit mode to enable scaling.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        item { Spacer(Modifier.height(8.dp)) }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val currentRating = recipe.rating
+                for (i in 1..5) {
+                    IconButton(
+                        onClick = {
+                            vm.setRecipeRating(
+                                recipe.id,
+                                if (currentRating == i) null else i
+                            )
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (currentRating != null && i <= currentRating)
+                                Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (currentRating != null && i <= currentRating)
+                                "Star $i" else "Unfilled star $i",
+                            tint = if (currentRating != null && i <= currentRating)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
         item { Spacer(Modifier.height(16.dp)) }
         item { Text("Ingredients", style = MaterialTheme.typography.titleMedium) }
         items(recipe.ingredients) { ing ->
-            Text("• ${ing.amount ?: ""} ${ing.unit.orEmpty()} ${ing.name}".trim())
+            val factor = if (baseServings != null && baseServings > 0)
+                targetServings.toDouble() / baseServings.toDouble() else 1.0
+            val needsConversion = recipe.preferredUnitSystem != UnitSystem.AS_WRITTEN
+
+            val displayAmount = when {
+                needsConversion && ing.unit != null -> {
+                    val result = UnitConverter.convertAndFormat(
+                        ing.amount, ing.unit, factor, recipe.preferredUnitSystem
+                    )
+                    if (result != null) {
+                        "${result.first} ${result.second}"
+                    } else {
+                        // conversion not applicable or unparseable; fall through to scaling-only
+                        if (abs(factor - 1.0) > 0.001) {
+                            val amounts = AmountParser.parseAmounts(ing.amount.orEmpty())
+                            if (amounts.isNotEmpty()) {
+                                AmountParser.scaleAndFormat(ing.amount ?: "", factor)
+                            } else {
+                                "~ ${ing.amount ?: ""}"
+                            }
+                        } else {
+                            ing.amount ?: ""
+                        }
+                    }
+                }
+                abs(factor - 1.0) > 0.001 -> {
+                    // scaling only
+                    val amounts = AmountParser.parseAmounts(ing.amount.orEmpty())
+                    if (amounts.isNotEmpty()) {
+                        AmountParser.scaleAndFormat(ing.amount ?: "", factor)
+                    } else {
+                        "~ ${ing.amount ?: ""}"
+                    }
+                }
+                else -> ing.amount ?: ""
+            }
+            Text("• $displayAmount ${ing.unit.orEmpty()} ${ing.name}".trim())
         }
         item { Spacer(Modifier.height(16.dp)) }
         item { Text("Instructions", style = MaterialTheme.typography.titleMedium) }
         items(recipe.steps.withIndex().toList()) { (index, step) ->
             Text("${index + 1}. ${step.text}")
         }
-        recipe.notes?.let { notes ->
-            item { Spacer(Modifier.height(16.dp)) }
-            item { Text("Notes", style = MaterialTheme.typography.titleMedium) }
-            item { Text(notes) }
+        if (recipe.notes == FALLBACK_NOTES_MESSAGE) {
+            item { Spacer(Modifier.height(8.dp)) }
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    Text(
+                        text = "Couldn't automatically structure this scan. The raw text is shown below — edit the fields to fix it.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        } else {
+            recipe.notes?.let { notes ->
+                item { Spacer(Modifier.height(16.dp)) }
+                item { Text("Notes", style = MaterialTheme.typography.titleMedium) }
+                item { Text(notes) }
+            }
         }
         item { Spacer(Modifier.height(24.dp)) }
         item {
@@ -283,8 +501,37 @@ private fun EditModeContent(
     val ingredients = lines.filter { it.detail is LineDetail.Ingredient }
     val steps = lines.filter { it.detail is LineDetail.Step }
 
+    val editingTitle by vm.editingTitle.collectAsState()
+    val editingServings by vm.editingServings.collectAsState()
+    val editingNotes by vm.editingNotes.collectAsState()
+
     LazyColumn(modifier) {
-        item { Text("Servings: ${recipe.servings}", style = MaterialTheme.typography.bodyLarge) }
+        item {
+            OutlinedTextField(
+                value = editingTitle,
+                onValueChange = { vm.setEditingTitle(it) },
+                label = { Text("Recipe Title") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.headlineSmall
+            )
+        }
+        item { Spacer(Modifier.height(16.dp)) }
+
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = editingServings?.toString() ?: "",
+                    onValueChange = { text ->
+                        vm.setEditingServings(text.toIntOrNull())
+                    },
+                    label = { Text("Servings") },
+                    singleLine = true,
+                    modifier = Modifier.width(100.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+            }
+        }
         item { Spacer(Modifier.height(16.dp)) }
 
         item { Text("Ingredients", style = MaterialTheme.typography.titleMedium) }
@@ -346,6 +593,18 @@ private fun EditModeContent(
             }
         }
 
+        item { Spacer(Modifier.height(16.dp)) }
+        item { Text("Notes", style = MaterialTheme.typography.titleMedium) }
+        item {
+            OutlinedTextField(
+                value = editingNotes ?: "",
+                onValueChange = { vm.setEditingNotes(it.ifBlank { null }) },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 3,
+                textStyle = MaterialTheme.typography.bodyMedium,
+                placeholder = { Text("Add your own notes or tweaks...") }
+            )
+        }
         item { Spacer(Modifier.height(24.dp)) }
     }
 }

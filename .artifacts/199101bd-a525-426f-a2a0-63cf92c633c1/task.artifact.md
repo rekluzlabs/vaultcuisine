@@ -1,0 +1,3 @@
+- [x] Change background color in `ic_launcher_background.xml` to black.
+- [x] Update `themes.xml` (via `values-v31`) to set splash screen background to black.
+- [x] Verify build.

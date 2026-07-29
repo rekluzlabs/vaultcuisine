@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import com.rekluzlabs.vaultcuisine.ai.extractTimerSeconds
 import java.util.UUID
 
 @Serializable
@@ -39,7 +40,7 @@ fun GeminiRecipeImport.toRecipes(): List<Recipe> {
         RecipeStep(
             id = UUID.randomUUID().toString(),
             text = text.trim(),
-            timerSeconds = null
+            timerSeconds = extractTimerSeconds(text)
         )
     }
 
@@ -58,10 +59,10 @@ fun GeminiRecipeImport.toRecipes(): List<Recipe> {
     )
 }
 
-private fun parseServings(raw: String?): Int {
-    if (raw == null) return 4
+private fun parseServings(raw: String?): Int? {
+    if (raw == null) return null
     val digits = raw.trim().replace(Regex("[^0-9].*"), "")
-    return digits.toIntOrNull() ?: 4
+    return digits.toIntOrNull()
 }
 
 private fun parseIngredient(line: String): RecipeIngredient {
