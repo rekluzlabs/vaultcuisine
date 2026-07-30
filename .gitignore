@@ -1,23 +1,35 @@
+# Dependencies
+node_modules/
+
+# Android / Gradle builds & caches
+.gradle/
+build/
+app/build/
+.artifacts/
+.externalNativeBuild/
+.cxx/
+captures/
+
+# IDE files (Android Studio / IntelliJ / VS Code)
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-# Build artifacts
+.vscode/
+
+# Build artifacts & binaries
 *.apk
 *.aab
+*.aar
+*.jar
 
-# Signing — do not commit these, repo is public
+# Local configurations & secrets (CRITICAL)
+local.properties
+keystore.properties
 *.jks
 *.keystore
-keystore.properties
+*.pepk
+.env
+.env.*
+
+# OS generated files
+.DS_Store
+Thumbs.db
