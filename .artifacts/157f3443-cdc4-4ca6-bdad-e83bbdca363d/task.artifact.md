@@ -1,6 +1,0 @@
-- [x] Modify `MainViewModel.kt` to handle title editing state
-- [x] Update `RecipeDetailScreen.kt` UI components
-    - [x] Update `TopAppBar` layout and actions
-    - [x] Add title to `ViewModeContent`
-    - [x] Add title field to `EditModeContent`
-- [x] Verify changes

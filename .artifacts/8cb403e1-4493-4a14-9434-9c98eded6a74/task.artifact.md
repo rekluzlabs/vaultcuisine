@@ -1,6 +1,0 @@
-- [x] Update `Color.kt` with brand accents and theme-specific colors
-- [x] Update `Theme.kt` with four distinct `ColorScheme` definitions
-- [x] Update `AppSettings` and `AppPreferences` with new theme IDs
-- [x] Update `MainActivity.kt` theme selection logic
-- [x] Update `SettingsScreen.kt` theme dropdown options
-- [x] Verify build and theme switching

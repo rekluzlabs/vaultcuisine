@@ -1,7 +1,0 @@
-- `[x]` Implement Welcome Screen
-    - `[x]` Add `Welcome` route to `NavRoutes.kt`
-    - `[x]` Create `WelcomeScreen.kt` with interactive area
-    - `[x]` Update `MainActivity.kt` to use `Welcome` as start destination
-- `[/]` Verification
-    - `[ ]` Verify Gradle sync
-    - `[ ]` Manual verification (requires image resource)
