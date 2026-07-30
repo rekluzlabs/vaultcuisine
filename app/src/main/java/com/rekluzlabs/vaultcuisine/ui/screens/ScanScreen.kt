@@ -41,6 +41,7 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 @Composable
 fun ScanScreen(
     isProcessing: Boolean,
+    scanMessage: String = "Reading your recipe…",
     onImageCaptured: (Bitmap) -> Unit
 ) {
     val context = LocalContext.current
@@ -83,7 +84,7 @@ fun ScanScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     Spacer(Modifier.height(16.dp))
-                    Text("Reading your recipe…")
+                    Text(scanMessage)
                 }
             } else {
                 Button(onClick = {

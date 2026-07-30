@@ -13,8 +13,8 @@ android {
         applicationId = "com.rekluzlabs.vaultcuisine"
         minSdk = 26
         targetSdk = 36
-        versionCode = 26072801
-        versionName = "0.2.13_alpha"
+        versionCode = 26073001
+        versionName = "0.2.2_alpha"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

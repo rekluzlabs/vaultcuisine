@@ -7,6 +7,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -18,6 +19,7 @@ import com.rekluzlabs.vaultcuisine.ai.ImagePreprocessor
 import com.rekluzlabs.vaultcuisine.ai.MissingApiKeyException
 import com.rekluzlabs.vaultcuisine.ai.NetworkException
 import com.rekluzlabs.vaultcuisine.ai.NotARecipeException
+import com.rekluzlabs.vaultcuisine.ai.ScanResult
 import com.rekluzlabs.vaultcuisine.ai.RateLimitException
 import com.rekluzlabs.vaultcuisine.data.AppSettings
 import com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
@@ -33,6 +35,7 @@ import com.rekluzlabs.vaultcuisine.timer.TimerRingService
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -56,11 +59,19 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     private val imagePreprocessor = ImagePreprocessor()
     private val geminiClient = GeminiOcrClient(credentialStore, imagePreprocessor)
 
+    private val _geminiKeyVerified = MutableStateFlow(false)
+    val geminiKeyVerified: StateFlow<Boolean> = _geminiKeyVerified
+
     val recipes: StateFlow<List<Recipe>> = dao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _settings = MutableStateFlow(prefs.load())
     val settings: StateFlow<AppSettings> = _settings
+
+    private val _scanMessage = MutableStateFlow("Reading your recipe…")
+    val scanMessage: StateFlow<String> = _scanMessage
+
+    private val _lastScannedImageBytes = MutableStateFlow<ByteArray?>(null)
 
     private val _userMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val userMessages: SharedFlow<String> = _userMessages
@@ -72,6 +83,9 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     private val _conversionEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val conversionEvents: SharedFlow<String> = _conversionEvents
+
+    private val _retryCompleted = Channel<String>(Channel.CONFLATED)
+    val retryCompleted: Flow<String> = _retryCompleted.receiveAsFlow()
 
     private val _newRecipeIds = mutableSetOf<String>()
 
@@ -127,10 +141,12 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         credentialStore.saveApiKey(key)
         _settings.value = _settings.value.copy(geminiConsentAccepted = false)
         prefs.save(_settings.value)
+        _geminiKeyVerified.value = true
     }
 
     fun clearGeminiApiKey() {
         credentialStore.clearApiKey()
+        _geminiKeyVerified.value = false
     }
 
     suspend fun validateGeminiApiKey(apiKey: String): Boolean {
@@ -140,6 +156,39 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     fun getGeminiApiKey(): String? = credentialStore.getApiKey()
 
     fun hasGeminiApiKey(): Boolean = credentialStore.hasApiKey()
+
+    fun clearLastScannedImageBytes() {
+        _lastScannedImageBytes.value = null
+    }
+
+    /**
+     * Manual "Try again" re-scan of the last captured image bytes (bypasses
+     * confidence-triggered retry — the user is the judge this time).
+     */
+    fun rescanCurrentImage() {
+        viewModelScope.launch {
+            val imageBytes = _lastScannedImageBytes.value ?: return@launch
+            _scanMessage.value = "Trying again…"
+            val modelId = settings.value.geminiModelId
+
+            Log.d("GeminiOcrClient", "manual retry (Try Again) starting")
+
+            val result = try {
+                geminiClient.structureFromImageWithMeta(imageBytes, modelId, ocrHint = null)
+            } catch (e: Exception) {
+                Log.d("GeminiOcrClient", "manual retry failed: ${e.message}")
+                _userMessages.tryEmit("Retry failed. Try retaking the photo.")
+                return@launch
+            }
+
+            Log.d("GeminiOcrClient", "manual retry (Try Again) complete")
+
+            val saved = result.recipe.copy(sourceImagePath = null, notes = null)
+            dao.upsert(saved)
+            _newRecipeIds.add(saved.id)
+            _retryCompleted.send(saved.id)
+        }
+    }
 
     // ── Edit mode ──
 
@@ -371,6 +420,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
      */
     fun processScannedImage(bitmap: Bitmap, onSaved: (recipeId: String) -> Unit) {
         viewModelScope.launch {
+            _scanMessage.value = "Reading your recipe…"
             val rawText = ocr.recognizeText(bitmap)
 
             val recipe = if (credentialStore.hasApiKey()) {
@@ -382,6 +432,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                 if (imageBytes != null) {
                     // Tier 1: Gemini image mode (with consent gate)
                     if (awaitGeminiConsent()) {
+                        _lastScannedImageBytes.value = imageBytes
                         runGeminiImageMode(rawText, imageBytes, settings.value.geminiModelId)
                     } else {
                         HeuristicStructurer().structure(rawText)
@@ -405,7 +456,12 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     private suspend fun runGeminiImageMode(rawText: String, imageBytes: ByteArray, modelId: String): Recipe {
         return try {
-            geminiClient.structureFromImage(imageBytes, modelId)
+            val result = geminiClient.structureFromImageWithMeta(
+                imageBytes, modelId,
+                ocrHint = rawText,
+                onRetry = { _scanMessage.value = "Getting a clearer read…" }
+            )
+            result.recipe
         } catch (e: MissingApiKeyException) {
             HeuristicStructurer().structure(rawText)
         } catch (e: NotARecipeException) {

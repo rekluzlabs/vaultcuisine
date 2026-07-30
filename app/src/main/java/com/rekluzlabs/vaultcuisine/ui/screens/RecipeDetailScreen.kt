@@ -3,6 +3,7 @@ package com.rekluzlabs.vaultcuisine.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Box
@@ -107,6 +108,7 @@ fun RecipeDetailScreen(
     isNewRecipe: Boolean = false,
     onBack: () -> Unit,
     onReScan: ((newRecipeId: String) -> Unit)? = null,
+    onRetakePhoto: (() -> Unit)? = null,
     onStartCooking: (() -> Unit)? = null
 ) {
     val recipes by vm.recipes.collectAsState()
@@ -128,6 +130,12 @@ fun RecipeDetailScreen(
     LaunchedEffect(Unit) {
         vm.conversionEvents.collect { message ->
             snackbarHostState.showSnackbar(message)
+        }
+    }
+
+    LaunchedEffect(recipeId) {
+        vm.retryCompleted.collect { newId ->
+            onReScan?.invoke(newId)
         }
     }
 
@@ -250,6 +258,8 @@ fun RecipeDetailScreen(
             ViewModeContent(
                 recipe = recipe,
                 vm = vm,
+                onReScan = onReScan,
+                onRetakePhoto = onRetakePhoto,
                 modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
             )
         }
@@ -283,6 +293,8 @@ private fun DeleteRecipeDialog(
 private fun ViewModeContent(
     recipe: Recipe,
     vm: MainViewModel,
+    onReScan: ((newRecipeId: String) -> Unit)? = null,
+    onRetakePhoto: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val baseServings = recipe.servings
@@ -293,8 +305,45 @@ private fun ViewModeContent(
             Text(
                 text = recipe.title,
                 style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             )
+        }
+        if (onReScan != null && recipe.sourceImagePath != null) {
+            item {
+                var showRetryMenu by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showRetryMenu = true }) {
+                        Text(
+                            "Doesn't look right?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showRetryMenu,
+                        onDismissRequest = { showRetryMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Try again") },
+                            onClick = {
+                                showRetryMenu = false
+                                vm.rescanCurrentImage()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Retake photo") },
+                            onClick = {
+                                showRetryMenu = false
+                                vm.clearLastScannedImageBytes()
+                                onRetakePhoto?.invoke()
+                            }
+                        )
+                    }
+                }
+            }
         }
         // ── Scaling + unit conversion toggle row ──
         item {

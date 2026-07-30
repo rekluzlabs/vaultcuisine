@@ -59,6 +59,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.rekluzlabs.vaultcuisine.R
@@ -73,6 +74,7 @@ fun SettingsScreen(
     settings: AppSettings,
     onSettingsChanged: (AppSettings) -> Unit,
     hasGeminiKey: Boolean,
+    keyVerified: Boolean,
     onSaveGeminiKey: (String) -> Unit,
     onClearGeminiKey: () -> Unit,
     onValidateKey: suspend (String) -> Boolean,
@@ -198,19 +200,54 @@ fun SettingsScreen(
                 }
             )
 
-            if (hasGeminiKey) {
-                OutlinedButton(
-                    onClick = { showApiKeyDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Update API Key")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (hasGeminiKey) {
+                    OutlinedButton(
+                        onClick = { showApiKeyDialog = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Update API Key")
+                    }
+                } else {
+                    Button(
+                        onClick = { showApiKeyDialog = true },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Configure API Key")
+                    }
                 }
-            } else {
-                Button(
-                    onClick = { showApiKeyDialog = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Configure API Key")
+                if (hasGeminiKey) {
+                    Spacer(Modifier.width(8.dp))
+                    if (keyVerified) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = "API key verified",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Verified",
+                            color = Color(0xFF4CAF50),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    } else {
+                        Icon(
+                            Icons.Filled.Error,
+                            contentDescription = "API key not verified",
+                            tint = Color(0xFFE53935),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "Unverified",
+                            color = Color(0xFFE53935),
+                            style = MaterialTheme.typography.labelMedium
+                        )
+                    }
                 }
             }
 
@@ -246,9 +283,13 @@ fun SettingsScreen(
                 value = settings.theme,
                 options = listOf(
                     "pantry" to "Pantry (Light)",
-                    "cellar" to "Cellar (Dark)",
-                    "vault" to "Deep Vault (AMOLED)",
-                    "garden" to "Garden Fresh (Green)"
+                    "cellar" to "Cantina (Dark)",
+                    "vault" to "Cast Iron (AMOLED)",
+                    "garden" to "Garden Fresh (Green)",
+                    "warm_spice" to "Autumn Harvest",
+                    "berry_harvest" to "Berry Season",
+                    "citrus_glow" to "Citrus Glow",
+                    "sage_olive" to "Sage & Olive"
                 ),
                 onValueChanged = { onSettingsChanged(settings.copy(theme = it)) }
             )

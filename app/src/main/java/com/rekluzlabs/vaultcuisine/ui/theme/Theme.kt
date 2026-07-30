@@ -62,6 +62,58 @@ private val GardenFreshColors = lightColorScheme(
     onSurfaceVariant = GardenText
 )
 
+private val WarmSpiceColors = lightColorScheme(
+    primary = SpicePrimary,
+    onPrimary = SpiceSurface,
+    secondary = SpiceSecondary,
+    onSecondary = SpiceText,
+    background = SpiceBackground,
+    onBackground = SpiceText,
+    surface = SpiceSurface,
+    onSurface = SpiceText,
+    surfaceVariant = SpiceBackground,
+    onSurfaceVariant = SpiceText
+)
+
+private val BerryHarvestColors = darkColorScheme(
+    primary = BerryPrimary,
+    onPrimary = BerryBackground,
+    secondary = BerrySecondary,
+    onSecondary = BerryBackground,
+    background = BerryBackground,
+    onBackground = BerryText,
+    surface = BerrySurface,
+    onSurface = BerryText,
+    surfaceVariant = BerryBackground,
+    onSurfaceVariant = BerryText
+)
+
+private val CitrusGlowColors = lightColorScheme(
+    primary = CitrusPrimary,
+    onPrimary = CitrusSurface,
+    secondary = CitrusSecondary,
+    onSecondary = CitrusText,
+    background = CitrusBackground,
+    onBackground = CitrusText,
+    surface = CitrusSurface,
+    onSurface = CitrusText,
+    surfaceVariant = CitrusBackground,
+    onSurfaceVariant = CitrusText
+)
+
+private val SageOliveColors = lightColorScheme(
+    primary = SagePrimary,
+    onPrimary = SageSurface,
+    secondary = SageSecondary,
+    onSecondary = SageText,
+    background = SageBackground,
+    onBackground = SageText,
+    surface = SageSurface,
+    onSurface = SageText,
+    surfaceVariant = SageBackground,
+    onSurfaceVariant = SageText
+)
+
 @Composable
 fun VaultCuisineTheme(
     themeMode: String = "pantry",
@@ -72,6 +124,10 @@ fun VaultCuisineTheme(
         "cellar" -> CellarColors
         "vault" -> DeepVaultColors
         "garden" -> GardenFreshColors
+        "warm_spice", "spice" -> WarmSpiceColors
+        "berry_harvest", "berry" -> BerryHarvestColors
+        "citrus_glow", "citrus" -> CitrusGlowColors
+        "sage_olive", "sage" -> SageOliveColors
         else -> {
             if (isSystemInDarkTheme()) CellarColors else PantryColors
         }

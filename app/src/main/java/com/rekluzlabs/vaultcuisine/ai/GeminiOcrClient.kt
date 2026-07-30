@@ -7,16 +7,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.long
-import kotlinx.serialization.json.int
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.SerialName
+import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -76,6 +72,8 @@ private data class GeminiStepDto(
     val confidence: String? = null
 )
 
+data class ScanResult(val recipe: Recipe, val retried: Boolean)
+
 class GeminiOcrClient(
     private val credentialStore: GeminiCredentialStore,
     private val imagePreprocessor: ImagePreprocessor = ImagePreprocessor(),
@@ -88,7 +86,6 @@ class GeminiOcrClient(
 
     override suspend fun structure(rawText: String): Recipe {
         if (!credentialStore.hasApiKey()) throw MissingApiKeyException()
-        // Default to a sane model if none provided (legacy compatibility or safety)
         return structure(rawText, "gemini-2.5-flash")
     }
 
@@ -101,17 +98,55 @@ class GeminiOcrClient(
     }
 
     override suspend fun structureFromImage(imageBytes: ByteArray): Recipe {
-        // Default to a sane model if none provided
-        return structureFromImage(imageBytes, "gemini-2.5-flash")
+        return structureFromImage(imageBytes, "gemini-2.5-flash", ocrHint = null)
     }
 
-    suspend fun structureFromImage(imageBytes: ByteArray, modelId: String): Recipe {
+    /**
+     * @param ocrHint Optional raw text already recognized on-device by ML Kit
+     * for this same image. When present, Gemini is asked to cross-check its
+     * own reading of the image against this text rather than transcribing
+     * cold — cheap accuracy gain, especially on blurry or low-light photos.
+     */
+    suspend fun structureFromImage(
+        imageBytes: ByteArray,
+        modelId: String,
+        ocrHint: String? = null
+    ): Recipe = structureFromImageWithMeta(imageBytes, modelId, ocrHint).recipe
+
+    /**
+     * Like [structureFromImage] but returns [ScanResult] containing a retry
+     * flag. If the first API response is low-confidence enough — empty result
+     * claiming to be a recipe, overall or majority item-level "low" confidence
+     * — a single second attempt is made with the same preprocessed image bytes
+     * and the second result is used regardless of its confidence. The caller
+     * can use [onRetry] to update UI state (e.g. loading message) without
+     * knowing implementation details.
+     */
+    suspend fun structureFromImageWithMeta(
+        imageBytes: ByteArray,
+        modelId: String,
+        ocrHint: String? = null,
+        onRetry: () -> Unit = {}
+    ): ScanResult {
         val apiKey = credentialStore.getApiKey() ?: throw MissingApiKeyException()
         val processed = imagePreprocessor.prepareForUpload(imageBytes)
-        val prompt = buildImagePrompt()
-        val responseJson = callGeminiApi(apiKey, modelId, prompt, processed)
-        val dto = parseResponseText(responseJson)
-        return dto.toRecipe()
+        val prompt = buildImagePrompt(ocrHint)
+
+        val firstJson = callGeminiApi(apiKey, modelId, prompt, processed)
+        val firstDto = parseResponseText(firstJson)
+
+        val willRetry = shouldRetry(firstDto)
+        Log.d("GeminiOcrClient", "scan attempt 1: confidence-triggered retry=$willRetry")
+
+        if (willRetry) {
+            onRetry()
+            val secondJson = callGeminiApi(apiKey, modelId, prompt, processed)
+            val secondDto = parseResponseText(secondJson)
+            Log.d("GeminiOcrClient", "scan attempt 2 (auto-retry) complete")
+            return ScanResult(secondDto.toRecipe(), retried = true)
+        }
+
+        return ScanResult(firstDto.toRecipe(), retried = false)
     }
 
     suspend fun validateApiKey(apiKey: String): Boolean = withContext(Dispatchers.IO) {
@@ -133,13 +168,13 @@ class GeminiOcrClient(
                 val base64 = Base64.getEncoder().encodeToString(imageBytes)
                 add(buildJsonObject {
                     put("inline_data", buildJsonObject {
-                        put("mime_type", "image/jpeg")
-                        put("data", base64)
+                        put("mime_type", JsonPrimitive("image/jpeg"))
+                        put("data", JsonPrimitive(base64))
                     })
                 })
             }
             add(buildJsonObject {
-                put("text", textPart)
+                put("text", JsonPrimitive(textPart))
             })
         }
 
@@ -149,6 +184,7 @@ class GeminiOcrClient(
                     put("parts", parts)
                 })
             })
+            put("generationConfig", buildGenerationConfig())
         }
 
         val bodyString = requestBody.toString()
@@ -185,7 +221,97 @@ class GeminiOcrClient(
         }
     }
 
+    /**
+     * Deterministic extraction settings + a JSON schema constraint. With
+     * response_mime_type/response_schema set, Gemini's decoder is constrained
+     * to emit matching JSON directly — no markdown fences, no preamble, no
+     * malformed output falling through to HeuristicStructurer.
+     */
+    private fun buildGenerationConfig() = buildJsonObject {
+        put("temperature", JsonPrimitive(0.1))
+        put("topP", JsonPrimitive(0.95))
+        put("maxOutputTokens", JsonPrimitive(2048))
+        put("response_mime_type", JsonPrimitive("application/json"))
+        put("response_schema", recipeResponseSchema())
+    }
+
+    private fun stringEnumSchema(vararg values: String) = buildJsonObject {
+        put("type", JsonPrimitive("string"))
+        put("enum", buildJsonArray { values.forEach { add(JsonPrimitive(it)) } })
+    }
+
+    private fun typeSchema(type: String, nullable: Boolean = false) = buildJsonObject {
+        put("type", JsonPrimitive(type))
+        if (nullable) put("nullable", JsonPrimitive(true))
+    }
+
+    private fun recipeResponseSchema() = buildJsonObject {
+        put("type", JsonPrimitive("object"))
+        put("properties", buildJsonObject {
+            put("is_recipe", typeSchema("boolean"))
+            put("confidence", stringEnumSchema("high", "medium", "low"))
+            put("title", typeSchema("string"))
+            put("ingredients", buildJsonObject {
+                put("type", JsonPrimitive("array"))
+                put("items", buildJsonObject {
+                    put("type", JsonPrimitive("object"))
+                    put("properties", buildJsonObject {
+                        put("amount", typeSchema("string", nullable = true))
+                        put("unit", typeSchema("string", nullable = true))
+                        put("name", typeSchema("string"))
+                        put("confidence", stringEnumSchema("high", "medium", "low"))
+                    })
+                    put("required", buildJsonArray { add(JsonPrimitive("name")) })
+                })
+            })
+            put("steps", buildJsonObject {
+                put("type", JsonPrimitive("array"))
+                put("items", buildJsonObject {
+                    put("type", JsonPrimitive("object"))
+                    put("properties", buildJsonObject {
+                        put("text", typeSchema("string"))
+                        put("timer_seconds", typeSchema("integer", nullable = true))
+                        put("confidence", stringEnumSchema("high", "medium", "low"))
+                    })
+                    put("required", buildJsonArray { add(JsonPrimitive("text")) })
+                })
+            })
+        })
+        put("required", buildJsonArray {
+            add(JsonPrimitive("is_recipe"))
+            add(JsonPrimitive("title"))
+            add(JsonPrimitive("ingredients"))
+            add(JsonPrimitive("steps"))
+        })
+    }
+
+    /**
+     * Returns true when the DTO is confidently "bad enough" to warrant an
+     * automatic single retry. Triggers on: empty result that still claims
+     * to be a recipe (likely garbage), overall low confidence, or a majority
+     * of individual items flagged low — without throwing an exception, so
+     * the existing HeuristicStructurer fallback chain is undisturbed.
+     */
+    private fun shouldRetry(dto: GeminiRecipeDto): Boolean {
+        if (!dto.isRecipe) return false
+
+        if (dto.ingredients.isEmpty() && dto.steps.isEmpty()) return true
+
+        if (dto.confidence == "low") return true
+
+        val total = dto.ingredients.size + dto.steps.size
+        if (total > 0) {
+            val lowCount = dto.ingredients.count { it.confidence == "low" } +
+                dto.steps.count { it.confidence == "low" }
+            if (lowCount > total / 2) return true
+        }
+
+        return false
+    }
+
     private fun parseResponseText(text: String): GeminiRecipeDto {
+        // response_schema guarantees clean JSON, but fence-stripping stays as
+        // a defensive no-op in case a future model/config change regresses this.
         val cleaned = text.trim()
             .removePrefix("```json")
             .removePrefix("```JSON")
@@ -199,7 +325,19 @@ class GeminiOcrClient(
         }
     }
 
-    private fun buildImagePrompt(): String = """
+    private fun buildImagePrompt(ocrHint: String?): String {
+        val hintBlock = if (!ocrHint.isNullOrBlank()) {
+            """
+
+On-device OCR already read this text from the same image (it may contain errors):
+---
+$ocrHint
+---
+Use it as a hint, but trust the image itself where the two disagree.
+"""
+        } else ""
+
+        return """
 Extract the recipe from this image of a recipe card.
 Return ONLY valid JSON, no markdown fences, no preamble, matching exactly this schema:
 {
@@ -218,7 +356,9 @@ Rules:
 - timer_seconds: populate ONLY when the step has ONE clear, dominant, actionable wait/cook duration. Return null if the step mentions multiple different durations or covers multiple sub-actions with different timings — do not sum or guess.
 - Do not invent ingredients or steps that aren't visible in the image.
 - If the image isn't a recipe (blurry, wrong subject, receipt, etc), set is_recipe: false.
+$hintBlock
 """.trimIndent()
+    }
 
     private fun buildTextPrompt(rawText: String): String = """
 Extract the recipe from this OCR text scanned from a recipe card.

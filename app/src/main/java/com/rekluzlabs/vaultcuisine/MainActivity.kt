@@ -136,8 +136,10 @@ fun VaultCuisineNavHost(vm: MainViewModel, intent: android.content.Intent? = nul
 
         composable(NavRoutes.Scan.route) {
             var isProcessing by remember { mutableStateOf(false) }
+            val scanMessage by vm.scanMessage.collectAsState()
             ScanScreen(
                 isProcessing = isProcessing,
+                scanMessage = scanMessage,
                 onImageCaptured = { bitmap: Bitmap ->
                     isProcessing = true
                     vm.processScannedImage(bitmap) { savedRecipeId ->
@@ -162,6 +164,10 @@ fun VaultCuisineNavHost(vm: MainViewModel, intent: android.content.Intent? = nul
                 onReScan = { newId ->
                     navController.navigate(NavRoutes.ReviewEdit.build(newId, isNew = true))
                 },
+                onRetakePhoto = {
+                    vm.clearLastScannedImageBytes()
+                    navController.navigate(NavRoutes.Scan.route)
+                },
                 onStartCooking = {
                     navController.navigate(NavRoutes.Cooking.build(recipeId))
                 }
@@ -181,7 +187,14 @@ fun VaultCuisineNavHost(vm: MainViewModel, intent: android.content.Intent? = nul
                 recipeId = recipeId,
                 vm = vm,
                 isNewRecipe = isNew,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onReScan = { newId ->
+                    navController.navigate(NavRoutes.ReviewEdit.build(newId, isNew = true))
+                },
+                onRetakePhoto = {
+                    vm.clearLastScannedImageBytes()
+                    navController.popBackStack()
+                }
             )
         }
 
@@ -207,6 +220,7 @@ fun VaultCuisineNavHost(vm: MainViewModel, intent: android.content.Intent? = nul
                 settings = settings,
                 onSettingsChanged = { vm.updateSettings(it) },
                 hasGeminiKey = vm.hasGeminiApiKey(),
+                keyVerified = vm.geminiKeyVerified.collectAsState().value,
                 onSaveGeminiKey = { vm.saveGeminiApiKey(it) },
                 onClearGeminiKey = { vm.clearGeminiApiKey() },
                 onValidateKey = { key -> vm.validateGeminiApiKey(key) },
