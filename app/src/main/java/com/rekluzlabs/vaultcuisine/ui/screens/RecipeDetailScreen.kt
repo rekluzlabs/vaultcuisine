@@ -1,6 +1,9 @@
 package com.rekluzlabs.vaultcuisine.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -86,6 +89,7 @@ import com.rekluzlabs.vaultcuisine.util.AmountParser
 import com.rekluzlabs.vaultcuisine.util.UnitConverter
 import com.rekluzlabs.vaultcuisine.util.UnitSystem
 import com.rekluzlabs.vaultcuisine.print.RecipePrinter
+import com.rekluzlabs.vaultcuisine.ui.components.RecipeThumbnail
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
 import java.time.Instant
@@ -120,6 +124,21 @@ fun RecipeDetailScreen(
     var showMoreMenu by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            vm.updateRecipeImage(recipeId, uri)
+        }
+    }
+
+    val onChangeRecipeImage: () -> Unit = {
+        imagePicker.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
+    }
+    val onRemoveRecipeImage: () -> Unit = { vm.removeRecipeImage(recipeId) }
 
     LaunchedEffect(recipeId) {
         if (editableLines != null) {
@@ -260,6 +279,8 @@ fun RecipeDetailScreen(
                 vm = vm,
                 onReScan = onReScan,
                 onRetakePhoto = onRetakePhoto,
+                onChangeImage = onChangeRecipeImage,
+                onRemoveImage = onRemoveRecipeImage,
                 modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
             )
         }
@@ -295,6 +316,8 @@ private fun ViewModeContent(
     vm: MainViewModel,
     onReScan: ((newRecipeId: String) -> Unit)? = null,
     onRetakePhoto: (() -> Unit)? = null,
+    onChangeImage: () -> Unit = {},
+    onRemoveImage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val baseServings = recipe.servings
@@ -302,11 +325,25 @@ private fun ViewModeContent(
 
     LazyColumn(modifier) {
         item {
-            Text(
-                text = recipe.title,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                Text(
+                    text = recipe.title,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(16.dp))
+                RecipeImageHeader(
+                    recipe = recipe,
+                    onChangeImage = onChangeImage,
+                    onRemoveImage = onRemoveImage,
+                    modifier = Modifier
+                        .size(132.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+            }
         }
         if (onReScan != null && recipe.sourceImagePath != null) {
             item {
@@ -536,6 +573,43 @@ private fun ViewModeContent(
 }
 
 private data class DragState(val itemId: String, val offset: Float)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecipeImageHeader(
+    recipe: Recipe,
+    onChangeImage: () -> Unit,
+    onRemoveImage: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    Box {
+        RecipeThumbnail(
+            path = recipe.sourceImagePath,
+            contentDescription = "Recipe image",
+            modifier = modifier.combinedClickable(
+                onClick = {},
+                onLongClick = { showMenu = true }
+            ),
+            targetSize = 1024
+        )
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false }
+        ) {
+            DropdownMenuItem(
+                text = { Text(if (recipe.sourceImagePath != null) "Change image" else "Add image") },
+                onClick = { showMenu = false; onChangeImage() }
+            )
+            if (recipe.sourceImagePath != null) {
+                DropdownMenuItem(
+                    text = { Text("Remove image", color = MaterialTheme.colorScheme.error) },
+                    onClick = { showMenu = false; onRemoveImage() }
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

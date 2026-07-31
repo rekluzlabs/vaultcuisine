@@ -1,12 +1,20 @@
 package com.rekluzlabs.vaultcuisine.ui.screens
 
 import android.content.Intent
+import android.graphics.SurfaceTexture
+import android.media.MediaPlayer
 import android.net.Uri
+import android.view.Surface
+import android.view.TextureView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -46,12 +55,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -62,6 +73,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.rekluzlabs.vaultcuisine.R
 import com.rekluzlabs.vaultcuisine.ai.GeminiModels
 import com.rekluzlabs.vaultcuisine.ai.GeminiModelVariant
@@ -88,6 +100,7 @@ fun SettingsScreen(
     var showClearDialog by remember { mutableStateOf(false) }
     var showClearKeysDialog by remember { mutableStateOf(false) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
+    var showIntroVideo by remember { mutableStateOf(false) }
 
     if (showClearDialog) {
         AlertDialog(
@@ -140,6 +153,7 @@ fun SettingsScreen(
         )
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -395,12 +409,19 @@ fun SettingsScreen(
                 Image(
                     painter = painterResource(id = R.drawable.rl_transparent),
                     contentDescription = "Rekluz Labs logo",
-                    modifier = Modifier.size(72.dp)
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clickable { showIntroVideo = true }
                 )
             }
 
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    if (showIntroVideo) {
+        IntroVideoOverlay(onClose = { showIntroVideo = false })
+    }
     }
 }
 
@@ -464,7 +485,7 @@ fun GeminiApiKeyDialog(
                         validationResult = null // Reset validation on change
                     },
                     label = { Text("API Key") },
-                    placeholder = { if (currentKey.isNotEmpty()) Text("••••••••••••••••") else Text("Enter key") },
+                    placeholder = { Text("Enter API key") },
                     singleLine = true,
                     visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
@@ -595,5 +616,63 @@ private fun SettingsDropdown(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun IntroVideoOverlay(onClose: () -> Unit) {
+    val context = LocalContext.current
+    val player = remember { MediaPlayer() }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { player.release() }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { onClose() },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        AndroidView(
+            factory = {
+                TextureView(it).apply {
+                    isClickable = true
+                    setOnClickListener { onClose() }
+                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                        override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+                            try {
+                                player.setSurface(Surface(surfaceTexture))
+                                context.resources.openRawResourceFd(R.raw.rekluz_labs_intro)?.use { afd ->
+                                    player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                                }
+                                player.isLooping = true
+                                player.setOnPreparedListener { it.start() }
+                                player.prepareAsync()
+                            } catch (_: Exception) {
+                                onClose()
+                            }
+                        }
+
+                        override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) = Unit
+
+                        override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean = true
+
+                        override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+                    }
+                }
+            },
+            modifier = Modifier
+                .padding(bottom = 120.dp)
+                .fillMaxWidth(0.8f)
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(12.dp))
+        )
     }
 }

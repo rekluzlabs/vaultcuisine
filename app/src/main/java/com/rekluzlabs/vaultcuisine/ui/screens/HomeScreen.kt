@@ -2,48 +2,43 @@ package com.rekluzlabs.vaultcuisine.ui.screens
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import com.rekluzlabs.vaultcuisine.data.Recipe
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-
-private val dateFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy  h:mm a")
-    .withZone(ZoneId.systemDefault())
-
-private fun formatTimestamp(millis: Long): String =
-    dateFormatter.format(Instant.ofEpochMilli(millis))
+import com.rekluzlabs.vaultcuisine.ui.components.RecipeThumbnail
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,36 +46,12 @@ fun HomeScreen(
     recipes: List<Recipe>,
     onRecipeClick: (Recipe) -> Unit,
     onScanClick: () -> Unit,
-    onDeleteRecipe: (String) -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    var recipeToDelete by remember { mutableStateOf<Recipe?>(null) }
-
-    if (recipeToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { recipeToDelete = null },
-            title = { Text("Delete recipe?") },
-            text = { Text("Are you sure you want to delete \"${recipeToDelete!!.title}\"? This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    onDeleteRecipe(recipeToDelete!!.id)
-                    recipeToDelete = null
-                }) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { recipeToDelete = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("VaultCuisine") },
+                title = { Text("VaultCuisine Recipes") },
                 actions = {
                     IconButton(onClick = onSettingsClick) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -107,27 +78,51 @@ fun HomeScreen(
                     Text("No recipes yet — tap + to scan your first one.")
                 }
             } else {
-                LazyColumn(Modifier.fillMaxSize().padding(padding)) {
-                    items(recipes) { recipe ->
-                        ListItem(
-                            headlineContent = { Text(recipe.title) },
-                            supportingContent = {
-                                Text("${recipe.ingredients.size} ingredients  ·  ${formatTimestamp(recipe.createdAt)}")
-                            },
-                            leadingContent = {
-                                IconButton(onClick = { recipeToDelete = recipe }) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "Delete ${recipe.title}"
-                                    )
-                                }
-                            },
-                            modifier = Modifier.clickable { onRecipeClick(recipe) }
-                        )
-                        HorizontalDivider()
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxSize().padding(padding),
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(recipes, key = { it.id }) { recipe ->
+                        RecipeTile(recipe = recipe, onClick = { onRecipeClick(recipe) })
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RecipeTile(recipe: Recipe, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(Modifier.fillMaxSize().padding(10.dp)) {
+            RecipeThumbnail(
+                path = recipe.sourceImagePath,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth(0.42f)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(8.dp)),
+                targetSize = 256
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = recipe.title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(vertical = 2.dp)
+            )
         }
     }
 }

@@ -129,7 +129,6 @@ fun VaultCuisineNavHost(vm: MainViewModel, intent: android.content.Intent? = nul
                     navController.navigate(NavRoutes.RecipeDetail.build(recipe.id))
                 },
                 onScanClick = { navController.navigate(NavRoutes.Scan.route) },
-                onDeleteRecipe = { recipeId -> vm.deleteRecipe(recipeId) },
                 onSettingsClick = { navController.navigate(NavRoutes.Settings.route) }
             )
         }

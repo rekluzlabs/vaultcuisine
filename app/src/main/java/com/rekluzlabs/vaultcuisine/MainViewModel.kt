@@ -5,21 +5,20 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
 import android.util.Log
+import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.rekluzlabs.vaultcuisine.ai.GeminiCredentialStore
 import com.rekluzlabs.vaultcuisine.ai.GeminiOcrClient
-import com.rekluzlabs.vaultcuisine.ai.GeminiOcrException
 import com.rekluzlabs.vaultcuisine.ai.HeuristicStructurer
 import com.rekluzlabs.vaultcuisine.ai.ImagePreprocessor
 import com.rekluzlabs.vaultcuisine.ai.MissingApiKeyException
 import com.rekluzlabs.vaultcuisine.ai.NetworkException
 import com.rekluzlabs.vaultcuisine.ai.NotARecipeException
-import com.rekluzlabs.vaultcuisine.ai.ScanResult
 import com.rekluzlabs.vaultcuisine.ai.RateLimitException
 import com.rekluzlabs.vaultcuisine.data.AppSettings
 import com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
@@ -34,13 +33,16 @@ import com.rekluzlabs.vaultcuisine.timer.TimerBroadcastReceiver
 import com.rekluzlabs.vaultcuisine.timer.TimerRingService
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
@@ -152,8 +154,6 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     suspend fun validateGeminiApiKey(apiKey: String): Boolean {
         return geminiClient.validateApiKey(apiKey)
     }
-
-    fun getGeminiApiKey(): String? = credentialStore.getApiKey()
 
     fun hasGeminiApiKey(): Boolean = credentialStore.hasApiKey()
 
@@ -462,15 +462,15 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                 onRetry = { _scanMessage.value = "Getting a clearer read…" }
             )
             result.recipe
-        } catch (e: MissingApiKeyException) {
+        } catch (_: MissingApiKeyException) {
             HeuristicStructurer().structure(rawText)
-        } catch (e: NotARecipeException) {
+        } catch (_: NotARecipeException) {
             _userMessages.tryEmit("This doesn't look like a recipe. Falling back to text-based parsing.")
             HeuristicStructurer().structure(rawText)
-        } catch (e: RateLimitException) {
+        } catch (_: RateLimitException) {
             _userMessages.tryEmit("You've hit your Gemini quota. Falling back to offline parsing.")
             HeuristicStructurer().structure(rawText)
-        } catch (e: NetworkException) {
+        } catch (_: NetworkException) {
             try {
                 geminiClient.structureFromImage(imageBytes)
             } catch (_: Exception) {
@@ -509,6 +509,41 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     private fun deleteImageFile(imagePath: String?) {
         if (imagePath != null) File(imagePath).delete()
+    }
+
+    /**
+     * Copies a user-picked image into app-private storage and points the
+     * recipe at it. The same file is what both the home grid and the recipe
+     * detail page display, so replacing it updates everywhere at once.
+     */
+    fun updateRecipeImage(recipeId: String, imageUri: Uri) {
+        viewModelScope.launch {
+            val recipe = dao.getById(recipeId) ?: return@launch
+            val dir = File(app.filesDir, IMAGE_DIR)
+            dir.mkdirs()
+            val destFile = File(dir, "${recipeId}.jpg")
+            val copied = try {
+                app.contentResolver.openInputStream(imageUri)?.use { input ->
+                    destFile.outputStream().use { output -> input.copyTo(output) }
+                    true
+                } ?: false
+            } catch (_: Exception) {
+                false
+            }
+            if (!copied) {
+                _userMessages.tryEmit("Couldn't load that image.")
+                return@launch
+            }
+            dao.upsert(recipe.copy(sourceImagePath = destFile.absolutePath, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
+    fun removeRecipeImage(recipeId: String) {
+        viewModelScope.launch {
+            val recipe = dao.getById(recipeId) ?: return@launch
+            recipe.sourceImagePath?.let { File(it).delete() }
+            dao.upsert(recipe.copy(sourceImagePath = null, updatedAt = System.currentTimeMillis()))
+        }
     }
 
     fun deleteRecipe(id: String) {
@@ -550,7 +585,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         tickJob = viewModelScope.launch {
             try {
                 while (true) {
-                    kotlinx.coroutines.delay(1000)
+                    delay(1.seconds)
                     val now = System.currentTimeMillis()
                     val current = _activeTimers.value
                     val updated = mutableMapOf<String, ActiveTimer>()
@@ -575,12 +610,12 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         val timer = ActiveTimer(recipeId, stepIndex, stepText, endTime, durationSeconds)
         val key = "${recipeId}_$stepIndex"
 
-        _activeTimers.value = _activeTimers.value + (key to timer)
+        _activeTimers.value += key to timer
 
         val prefs = context.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putLong(timer.timerKey, endTime).apply()
-        prefs.edit().putString("${timer.timerKey}_text", stepText).apply()
-        prefs.edit().putInt("${timer.timerKey}_total", durationSeconds).apply()
+        prefs.edit { putLong(timer.timerKey, endTime) }
+        prefs.edit { putString("${timer.timerKey}_text", stepText) }
+        prefs.edit { putInt("${timer.timerKey}_total", durationSeconds) }
 
         scheduleAlarm(context, recipeId, stepIndex, stepText, endTime)
 
@@ -609,11 +644,11 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     fun cancelTimer(context: Context, recipeId: String, stepIndex: Int) {
         val key = "${recipeId}_$stepIndex"
-        _activeTimers.value = _activeTimers.value - key
+        _activeTimers.value -= key
         val prefs = app.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove("timer_${recipeId}_$stepIndex").apply()
-        prefs.edit().remove("timer_${recipeId}_${stepIndex}_text").apply()
-        prefs.edit().remove("timer_${recipeId}_${stepIndex}_total").apply()
+        prefs.edit { remove("timer_${recipeId}_$stepIndex") }
+        prefs.edit { remove("timer_${recipeId}_${stepIndex}_text") }
+        prefs.edit { remove("timer_${recipeId}_${stepIndex}_total") }
 
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, TimerBroadcastReceiver::class.java).apply {
@@ -671,87 +706,10 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     fun dismissAlarm(context: Context, recipeId: String, stepIndex: Int) {
         val mapKey = "${recipeId}_$stepIndex"
-        _ringingTimers.value = _ringingTimers.value - mapKey
+        _ringingTimers.value -= mapKey
         val prefs = app.getSharedPreferences(TimerBroadcastReceiver.PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove("ringing_${recipeId}_$stepIndex").apply()
+        prefs.edit { remove("ringing_${recipeId}_$stepIndex") }
         context.stopService(Intent(context, TimerRingService::class.java))
-    }
-
-    /**
-     * Re-runs Gemini structuring on an already-saved recipe's original image.
-     * Does NOT modify the existing saved recipe — the new result is saved
-     * separately and returned via onNewRecipeId for the review/edit screen.
-     *
-     * Flow: load saved image -> prepareForUpload -> Gemini image mode ->
-     * on success, upsert new result + callback with new ID.
-     * On failure at any tier: show error message, leave existing recipe untouched.
-     */
-    fun rescanRecipe(recipeId: String, onNewRecipeId: (String) -> Unit) {
-        viewModelScope.launch {
-            val recipe = dao.getById(recipeId) ?: return@launch
-            val imagePath = recipe.sourceImagePath
-
-            if (imagePath == null) {
-                _userMessages.tryEmit("This recipe has no saved scan image to re-process.")
-                return@launch
-            }
-            val imageFile = File(imagePath)
-            if (!imageFile.exists()) {
-                _userMessages.tryEmit("Original image file is missing. Can't re-scan.")
-                return@launch
-            }
-            if (!credentialStore.hasApiKey()) {
-                _userMessages.tryEmit("No Gemini API key configured. Add one in Settings to re-scan with AI.")
-                return@launch
-            }
-
-            val imageBytes = imageFile.readBytes()
-            val preparedBytes = imagePreprocessor.prepareForUpload(imageBytes)
-
-            if (!awaitGeminiConsent()) {
-                try {
-                    val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                    val rawText = ocr.recognizeText(bitmap)
-                    val scanned = HeuristicStructurer().structure(rawText)
-                    val saved = scanned.copy(sourceImagePath = imagePath, notes = recipe.notes)
-                    dao.upsert(saved)
-                    _newRecipeIds.add(saved.id)
-                    onNewRecipeId(saved.id)
-                } catch (_: Exception) {
-                    _userMessages.tryEmit("Can't re-scan without consent. Enable it in Settings to use AI structuring.")
-                }
-                return@launch
-            }
-
-            val newRecipe = try {
-                geminiClient.structureFromImage(preparedBytes, settings.value.geminiModelId)
-            } catch (e: MissingApiKeyException) {
-                _userMessages.tryEmit("No Gemini API key configured. Add one in Settings to re-scan with AI.")
-                return@launch
-            } catch (e: NotARecipeException) {
-                _userMessages.tryEmit("This doesn't look like a recipe. Result discarded.")
-                return@launch
-            } catch (e: RateLimitException) {
-                _userMessages.tryEmit("Gemini quota exceeded. Try again later.")
-                return@launch
-            } catch (e: NetworkException) {
-                try {
-                    geminiClient.structureFromImage(imagePreprocessor.prepareForUpload(imageBytes))
-                } catch (_: Exception) {
-                    _userMessages.tryEmit("Network error. Check your connection and try again.")
-                    return@launch
-                }
-            } catch (_: Exception) {
-                _userMessages.tryEmit("AI re-scan failed. Try again later.")
-                return@launch
-            }
-
-            // Point the new result at the same original image; don't re-persist.
-            val saved = newRecipe.copy(sourceImagePath = imagePath, notes = recipe.notes)
-            dao.upsert(saved)
-            _newRecipeIds.add(saved.id)
-            onNewRecipeId(saved.id)
-        }
     }
 
     fun clearAllData() {
