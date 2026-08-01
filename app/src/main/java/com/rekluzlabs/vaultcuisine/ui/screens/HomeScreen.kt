@@ -316,5 +316,6 @@ private fun CategoryTile(
                 )
             }
         }
+        }
     }
 }
