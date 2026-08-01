@@ -145,8 +145,7 @@ fun RecipeDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMoveCategoryDialog by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
-
-    var showImageViewer by remember { mutableStateOf(false) }
+var showImageViewer by remember { mutableStateOf(false) }
     var showTranslateDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -239,7 +238,7 @@ fun RecipeDetailScreen(
         )
     }
 
-    if (showMoveCategoryDialog) {
+if (showMoveCategoryDialog) {
         CategoryPickerDialog(
             initialCategory = recipe.category,
             recipeTitle = recipe.title,
@@ -363,7 +362,7 @@ fun RecipeDetailScreen(
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+Column(Modifier.fillMaxSize().padding(padding)) {
             if (isTranslatingThis && editableLines == null) {
                 TranslationInProgressBanner()
             } else if (translationError != null && editableLines == null) {
@@ -542,11 +541,11 @@ private fun ViewModeContent(
     onChangeImage: () -> Unit = {},
     onTakePhoto: () -> Unit = {},
     onRemoveImage: () -> Unit = {},
+    onViewImage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val baseServings = recipe.servings
     var targetServings by remember(baseServings) { mutableStateOf(baseServings ?: 1) }
-    var showImageViewer by remember { mutableStateOf(false) }
 
     Box(modifier) {
         Image(
@@ -573,7 +572,7 @@ private fun ViewModeContent(
                     onChangeImage = onChangeImage,
                     onTakePhoto = onTakePhoto,
                     onRemoveImage = onRemoveImage,
-                    onViewImage = { showImageViewer = true },
+                    onViewImage = onViewImage,
                     modifier = Modifier
                         .size(132.dp)
                         .clip(RoundedCornerShape(12.dp))
@@ -804,12 +803,6 @@ private fun ViewModeContent(
                 textAlign = TextAlign.Center
             )
         }
-        }
-        if (showImageViewer && recipe.sourceImagePath != null) {
-            FullScreenImageViewer(
-                path = recipe.sourceImagePath,
-                onDismiss = { showImageViewer = false }
-            )
         }
     }
 }
