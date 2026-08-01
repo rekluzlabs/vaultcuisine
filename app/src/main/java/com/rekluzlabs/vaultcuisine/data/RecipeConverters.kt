@@ -39,4 +39,11 @@ class RecipeConverters {
     @TypeConverter
     fun toTags(data: String): List<String> =
         if (data.isBlank()) emptyList() else json.decodeFromString(data)
+
+    @TypeConverter
+    fun fromRecipeCategory(category: RecipeCategory): String = category.name
+
+    @TypeConverter
+    fun toRecipeCategory(value: String): RecipeCategory =
+        try { RecipeCategory.valueOf(value) } catch (_: Exception) { RecipeCategory.OTHER }
 }

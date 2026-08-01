@@ -7,12 +7,15 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.core.content.edit
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.rekluzlabs.vaultcuisine.ai.CategorySuggester
 import com.rekluzlabs.vaultcuisine.ai.GeminiCredentialStore
+import com.rekluzlabs.vaultcuisine.ai.GeminiModels
 import com.rekluzlabs.vaultcuisine.ai.GeminiOcrClient
 import com.rekluzlabs.vaultcuisine.ai.HeuristicStructurer
 import com.rekluzlabs.vaultcuisine.ai.ImagePreprocessor
@@ -20,13 +23,17 @@ import com.rekluzlabs.vaultcuisine.ai.MissingApiKeyException
 import com.rekluzlabs.vaultcuisine.ai.NetworkException
 import com.rekluzlabs.vaultcuisine.ai.NotARecipeException
 import com.rekluzlabs.vaultcuisine.ai.RateLimitException
+import com.rekluzlabs.vaultcuisine.ai.sanitizeGeminiMessage
 import com.rekluzlabs.vaultcuisine.data.AppSettings
+import com.rekluzlabs.vaultcuisine.data.CURRENT_SCHEMA_VERSION
 import com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
 import com.rekluzlabs.vaultcuisine.data.Recipe
-import com.rekluzlabs.vaultcuisine.data.RecipeExport
+import com.rekluzlabs.vaultcuisine.data.RecipeCategory
 import com.rekluzlabs.vaultcuisine.data.RecipeIngredient
 import com.rekluzlabs.vaultcuisine.data.RecipeStep
-import com.rekluzlabs.vaultcuisine.data.tryParseGeminiImport
+import com.rekluzlabs.vaultcuisine.data.SupportedLanguages
+import com.rekluzlabs.vaultcuisine.data.backup.BackupManager
+import com.rekluzlabs.vaultcuisine.data.backup.BackupResult
 import com.rekluzlabs.vaultcuisine.ocr.TextRecognizerHelper
 import com.rekluzlabs.vaultcuisine.timer.ActiveTimer
 import com.rekluzlabs.vaultcuisine.timer.TimerBroadcastReceiver
@@ -48,6 +55,8 @@ import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.UUID
 
 enum class SectionType { INGREDIENT, STEP }
@@ -60,6 +69,15 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     val credentialStore = GeminiCredentialStore(app)
     private val imagePreprocessor = ImagePreprocessor()
     private val geminiClient = GeminiOcrClient(credentialStore, imagePreprocessor)
+    private val backupManager by lazy {
+        BackupManager(dao, app.database, File(app.filesDir, IMAGE_DIR), app.cacheDir)
+    }
+
+    private val _pendingRestoreUri = MutableStateFlow<Uri?>(null)
+    val pendingRestoreUri: StateFlow<Uri?> = _pendingRestoreUri
+
+    private val _isRestoring = MutableStateFlow(false)
+    val isRestoring: StateFlow<Boolean> = _isRestoring
 
     private val _geminiKeyVerified = MutableStateFlow(false)
     val geminiKeyVerified: StateFlow<Boolean> = _geminiKeyVerified
@@ -67,9 +85,8 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     val recipes: StateFlow<List<Recipe>> = dao.getAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _settings = MutableStateFlow(prefs.load())
+    private val _settings = MutableStateFlow(prefs.load().sanitizeGeminiModel())
     val settings: StateFlow<AppSettings> = _settings
-
     private val _scanMessage = MutableStateFlow("Reading your recipe…")
     val scanMessage: StateFlow<String> = _scanMessage
 
@@ -77,6 +94,17 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     private val _userMessages = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val userMessages: SharedFlow<String> = _userMessages
+
+    // View-only recipe translations, keyed by recipe id. Originals in the DB
+    // are never touched — this is a per-session cache for display purposes.
+    private val _recipeTranslations = MutableStateFlow<Map<String, Recipe>>(emptyMap())
+    val recipeTranslations: StateFlow<Map<String, Recipe>> = _recipeTranslations
+
+    private val _translatingRecipeIds = MutableStateFlow<Set<String>>(emptySet())
+    val translatingRecipeIds: StateFlow<Set<String>> = _translatingRecipeIds
+
+    private val _translationErrors = MutableStateFlow<Map<String, String>>(emptyMap())
+    val translationErrors: StateFlow<Map<String, String>> = _translationErrors
 
     private val _editableLines = MutableStateFlow<List<EditableLine>?>(null)
     val editableLines: StateFlow<List<EditableLine>?> = _editableLines
@@ -102,11 +130,18 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     private val _consentResult = Channel<Boolean>(Channel.CONFLATED)
 
     fun acceptGeminiConsent() {
-        _settings.value = _settings.value.copy(geminiConsentAccepted = true)
-        prefs.save(_settings.value)
         _needsGeminiConsent.value = false
         _isConsentFromSettings.value = false
         _consentResult.trySend(true)
+    }
+
+    /**
+     * Sets whether the consent dialog should be shown before each image is
+     * sent to Gemini. When off, images are sent without prompting.
+     */
+    fun setShowGeminiConsent(show: Boolean) {
+        _settings.value = _settings.value.copy(showGeminiConsentDialog = show)
+        prefs.save(_settings.value)
     }
 
     fun rejectGeminiConsent() {
@@ -125,11 +160,85 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         _isConsentFromSettings.value = false
     }
 
+    // ── Per-scan route choice (local vs Gemini) ──
+
+    private val _scanChoiceRequested = MutableStateFlow(false)
+    val scanChoiceRequested: StateFlow<Boolean> = _scanChoiceRequested
+
+    private val _scanRouteResult = Channel<Boolean>(Channel.CONFLATED)
+
+    /**
+     * Called by the scan-route dialog. [useGemini] true routes this scan to
+     * Gemini and flips the master Gemini toggle on; false scans locally.
+     */
+    fun chooseScanRoute(useGemini: Boolean) {
+        if (useGemini) {
+            _settings.value = _settings.value.copy(geminiEnabled = true)
+            prefs.save(_settings.value)
+        }
+        _scanRouteResult.trySend(useGemini)
+    }
+
+    /**
+     * Blocks until the user answers the per-scan "scan locally or with
+     * Gemini?" dialog. Only invoked when a key exists but the master toggle
+     * is off, so the user can opt in to a single cloud scan without hunting
+     * through Settings first.
+     */
+    private suspend fun awaitScanRouteChoice(): Boolean {
+        _scanRouteResult.tryReceive()
+        _scanChoiceRequested.value = true
+        return _scanRouteResult.receive()
+    }
+
     /** Returns true if the caller should proceed with the Gemini call. */
     private suspend fun awaitGeminiConsent(): Boolean {
-        if (_settings.value.geminiConsentAccepted) return true
+        if (!_settings.value.showGeminiConsentDialog) return true
         _needsGeminiConsent.value = true
         return _consentResult.receive()
+    }
+
+    // ── Category selection (blocking step before first save) ──
+
+    /**
+     * Set to the recipe currently awaiting a category pick. UI shows
+     * CategoryPickerDialog whenever this is non-null (scan completion and
+     * import path both block here before the recipe is persisted).
+     */
+    private val _recipeAwaitingCategory = MutableStateFlow<Recipe?>(null)
+    val recipeAwaitingCategory: StateFlow<Recipe?> = _recipeAwaitingCategory
+
+    private val _categorySelectionResult = Channel<RecipeCategory?>(Channel.CONFLATED)
+
+    fun confirmCategorySelection(category: RecipeCategory) {
+        _recipeAwaitingCategory.value = null
+        _categorySelectionResult.trySend(category)
+    }
+
+    fun cancelCategorySelection() {
+        _recipeAwaitingCategory.value = null
+        _categorySelectionResult.trySend(null)
+    }
+
+    /** Discards stale values, flags [recipe] as awaiting a pick, then blocks. */
+    private suspend fun awaitCategorySelection(recipe: Recipe): RecipeCategory? {
+        _categorySelectionResult.tryReceive()
+        _recipeAwaitingCategory.value = recipe
+        return _categorySelectionResult.receive()
+    }
+
+    /**
+     * Pre-fills a freshly structured recipe with a suggested category, but
+     * only when no category decision already exists. Gemini-structured
+     * recipes carry a resolved category from [ai.GeminiOcrClient]'s fallback
+     * chain; the heuristic-only fallback leaves the default OTHER, so that's
+     * the case [ai.CategorySuggester] fills in here. An existing non-OTHER
+     * category (e.g. the user previously moved the recipe) is always respected.
+     */
+    private fun Recipe.withSuggestedCategory(): Recipe {
+        if (category != RecipeCategory.OTHER) return this
+        val suggestion = CategorySuggester.suggest(title = title, recipe = this)
+        return if (suggestion == RecipeCategory.OTHER) this else copy(category = suggestion)
     }
 
     fun updateSettings(s: AppSettings) {
@@ -137,11 +246,46 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         prefs.save(s)
     }
 
+    /**
+     * Migrates a stored model ID that no longer exists (e.g. retired
+     * `gemini-2.5-flash`) back to the current default so the dropdown always
+     * shows a selectable, live model.
+     */
+    private fun AppSettings.sanitizeGeminiModel(): AppSettings {
+        if (GeminiModels.variants.any { it.id == geminiModelId }) return this
+        return copy(geminiModelId = GeminiModels.DEFAULT_MODEL_ID)
+    }
+
+    fun setHomeTileOrder(order: List<String>) {
+        updateSettings(_settings.value.copy(homeTileOrder = order))
+    }
+
+    fun setHomeTilePinned(key: String, pinned: Boolean) {
+        val current = _settings.value.pinnedHomeTiles
+        val updated = if (pinned) {
+            if (key in current) current else current + key
+        } else {
+            current - key
+        }
+        updateSettings(_settings.value.copy(pinnedHomeTiles = updated))
+    }
+
+    /** Pins or unpins an individual recipe so it floats to the top of its list. */
+    fun setRecipePinned(recipeId: String, pinned: Boolean) {
+        val current = _settings.value.pinnedRecipeIds
+        val updated = if (pinned) {
+            if (recipeId in current) current else current + recipeId
+        } else {
+            current - recipeId
+        }
+        updateSettings(_settings.value.copy(pinnedRecipeIds = updated))
+    }
+
     // ── Gemini API key ──
 
     fun saveGeminiApiKey(key: String) {
         credentialStore.saveApiKey(key)
-        _settings.value = _settings.value.copy(geminiConsentAccepted = false)
+        _settings.value = _settings.value.copy(showGeminiConsentDialog = true)
         prefs.save(_settings.value)
         _geminiKeyVerified.value = true
     }
@@ -168,7 +312,11 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     fun rescanCurrentImage() {
         viewModelScope.launch {
             val imageBytes = _lastScannedImageBytes.value ?: return@launch
-            _scanMessage.value = "Trying again…"
+            if (!settings.value.geminiEnabled || !credentialStore.hasApiKey()) {
+                _userMessages.tryEmit("Gemini API features are disabled in Settings.")
+                return@launch
+            }
+            _scanMessage.value = "Gemini is reading your recipe"
             val modelId = settings.value.geminiModelId
 
             Log.d("GeminiOcrClient", "manual retry (Try Again) starting")
@@ -176,14 +324,20 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             val result = try {
                 geminiClient.structureFromImageWithMeta(imageBytes, modelId, ocrHint = null)
             } catch (e: Exception) {
-                Log.d("GeminiOcrClient", "manual retry failed: ${e.message}")
+                Log.d("GeminiOcrClient", "manual retry failed: ${sanitizeGeminiMessage(e.message)}")
                 _userMessages.tryEmit("Retry failed. Try retaking the photo.")
                 return@launch
             }
 
             Log.d("GeminiOcrClient", "manual retry (Try Again) complete")
 
-            val saved = result.recipe.copy(sourceImagePath = null, notes = null)
+            val structured = result.recipe
+                .copy(sourceImagePath = null, notes = null)
+                .withSuggestedCategory()
+            val category = awaitCategorySelection(structured)
+            if (category == null) return@launch
+
+            val saved = structured.copy(category = category)
             dao.upsert(saved)
             _newRecipeIds.add(saved.id)
             _retryCompleted.send(saved.id)
@@ -192,13 +346,37 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     // ── Edit mode ──
 
-    fun enterEditMode(recipeId: String) {
-        val recipe = recipes.value.find { it.id == recipeId } ?: return
+    private fun startEditSession(recipe: Recipe) {
         _editingRecipe.value = recipe
         _editableLines.value = recipe.toEditableLines()
         _editingTitle.value = recipe.title
         _editingServings.value = recipe.servings
         _editingNotes.value = if (recipe.notes == FALLBACK_NOTES_MESSAGE) null else recipe.notes
+        _editingCategory.value = recipe.category
+    }
+
+    fun enterEditMode(recipeId: String) {
+        val recipe = recipes.value.find { it.id == recipeId } ?: return
+        startEditSession(recipe)
+    }
+
+    /** Creates a blank recipe and opens it in edit mode so the user can type it out by hand. */
+    fun createManualRecipe(category: RecipeCategory = RecipeCategory.OTHER, onCreated: (String) -> Unit) {
+        viewModelScope.launch {
+            val recipe = Recipe(
+                id = UUID.randomUUID().toString(),
+                schemaVersion = CURRENT_SCHEMA_VERSION,
+                title = "",
+                ingredients = emptyList(),
+                steps = emptyList(),
+                notes = null,
+                category = category
+            )
+            dao.upsert(recipe)
+            _newRecipeIds.add(recipe.id)
+            startEditSession(recipe)
+            onCreated(recipe.id)
+        }
     }
 
     // ── Edit mode: title ──
@@ -226,6 +404,15 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
 
     fun setEditingNotes(text: String?) {
         _editingNotes.value = text
+    }
+
+    // ── Edit mode: category ──
+
+    private val _editingCategory = MutableStateFlow(RecipeCategory.OTHER)
+    val editingCategory: StateFlow<RecipeCategory> = _editingCategory
+
+    fun setEditingCategory(category: RecipeCategory) {
+        _editingCategory.value = category
     }
 
     fun saveEdits() {
@@ -263,6 +450,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                     ingredients = ingredients,
                     steps = steps,
                     notes = _editingNotes.value,
+                    category = _editingCategory.value,
                     updatedAt = System.currentTimeMillis()
                 )
             )
@@ -272,6 +460,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             _editingTitle.value = ""
             _editingServings.value = null
             _editingNotes.value = null
+            _editingCategory.value = RecipeCategory.OTHER
         }
     }
 
@@ -283,6 +472,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         _editingTitle.value = ""
         _editingServings.value = null
         _editingNotes.value = null
+        _editingCategory.value = RecipeCategory.OTHER
         if (wasNew) {
             viewModelScope.launch {
                 dao.deleteById(recipe.id)
@@ -416,14 +606,36 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
      *   3. HeuristicStructurer (fully offline)
      *
      * Saves the original Bitmap to app-private storage as the permanent
-     * reference copy before discarding.
+     * reference copy before discarding. The category picker is a blocking
+     * step right after structuring completes — the recipe is not persisted
+     * until the user confirms a category (or cancels the scan entirely).
      */
-    fun processScannedImage(bitmap: Bitmap, onSaved: (recipeId: String) -> Unit) {
+    /**
+     * @param defaultCategory when non-null (e.g. scan launched from a category
+     *   screen), the post-scan category picker pre-selects this value.
+     */
+    fun processScannedImage(
+        bitmap: Bitmap,
+        defaultCategory: RecipeCategory? = null,
+        onSaved: (recipeId: String) -> Unit,
+        onCancelled: () -> Unit = {}
+    ) {
         viewModelScope.launch {
             _scanMessage.value = "Reading your recipe…"
-            val rawText = ocr.recognizeText(bitmap)
+            val rawText = ocr.recognizeText(bitmap, _settings.value.ocrLanguage)
 
-            val recipe = if (credentialStore.hasApiKey()) {
+            val hasKey = credentialStore.hasApiKey()
+            val useGemini = if (hasKey && settings.value.geminiEnabled) {
+                true
+            } else if (hasKey) {
+                // Key present but the master toggle is off — let the user
+                // choose per-scan. Picking Gemini flips the toggle on.
+                _scanChoiceRequested.value = false
+                awaitScanRouteChoice()
+            } else {
+                false
+            }
+            val recipe = if (useGemini) {
                 val imageBytes = try {
                     bitmapToJpegBytes(bitmap)
                 } catch (_: Exception) {
@@ -433,21 +645,38 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                     // Tier 1: Gemini image mode (with consent gate)
                     if (awaitGeminiConsent()) {
                         _lastScannedImageBytes.value = imageBytes
+                        _scanMessage.value = "Gemini is reading your recipe"
                         runGeminiImageMode(rawText, imageBytes, settings.value.geminiModelId)
                     } else {
+                        _scanMessage.value = "Recipe being read locally on device only"
                         HeuristicStructurer().structure(rawText)
                     }
                 } else {
                     // Tier 2: Gemini text mode (image bytes unavailable)
+                    _scanMessage.value = "Gemini is reading your recipe"
                     runGeminiTextMode(rawText, settings.value.geminiModelId)
                 }
             } else {
                 // Tier 3: heuristic
+                _scanMessage.value = "Recipe being read locally on device only"
                 HeuristicStructurer().structure(rawText)
             }
 
             val imagePath = saveOriginalImage(bitmap, recipe.id)
-            val saved = recipe.copy(sourceImagePath = imagePath)
+            val withImage = recipe
+                .copy(sourceImagePath = imagePath)
+                .withSuggestedCategory()
+                .let { if (defaultCategory != null) it.copy(category = defaultCategory) else it }
+
+            val category = awaitCategorySelection(withImage)
+            if (category == null) {
+                // Scan cancelled before the recipe was ever persisted — clean up.
+                deleteImageFile(imagePath)
+                onCancelled()
+                return@launch
+            }
+
+            val saved = withImage.copy(category = category)
             dao.upsert(saved)
             _newRecipeIds.add(saved.id)
             onSaved(saved.id)
@@ -463,20 +692,31 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             )
             result.recipe
         } catch (_: MissingApiKeyException) {
+            Log.e("GeminiScan", "image mode: missing API key")
+            _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
         } catch (_: NotARecipeException) {
+            Log.e("GeminiScan", "image mode: not a recipe")
             _userMessages.tryEmit("This doesn't look like a recipe. Falling back to text-based parsing.")
+            _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
-        } catch (_: RateLimitException) {
-            _userMessages.tryEmit("You've hit your Gemini quota. Falling back to offline parsing.")
+        } catch (e: RateLimitException) {
+            Log.e("GeminiScan", "image mode: rate limited", e)
+            _userMessages.tryEmit(quotaMessage(e.retryAfterSeconds))
+            _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
-        } catch (_: NetworkException) {
+        } catch (e: NetworkException) {
+            Log.e("GeminiScan", "image mode: network error, retrying without meta", e)
             try {
                 geminiClient.structureFromImage(imageBytes)
-            } catch (_: Exception) {
+            } catch (e2: Exception) {
+                Log.e("GeminiScan", "image mode: retry also failed", e2)
+                _scanMessage.value = "Recipe being read locally on device only"
                 HeuristicStructurer().structure(rawText)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("GeminiScan", "image mode: $modelId failed", e)
+            _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
         }
     }
@@ -484,9 +724,56 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
     private suspend fun runGeminiTextMode(rawText: String, modelId: String): Recipe {
         return try {
             geminiClient.structure(rawText, modelId)
-        } catch (_: Exception) {
+        } catch (e: RateLimitException) {
+            Log.e("GeminiScan", "text mode: rate limited", e)
+            _userMessages.tryEmit(quotaMessage(e.retryAfterSeconds))
+            _scanMessage.value = "Recipe being read locally on device only"
+            HeuristicStructurer().structure(rawText)
+        } catch (e: Exception) {
+            Log.e("GeminiScan", "text mode: $modelId failed", e)
+            _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
         }
+    }
+
+    private fun quotaMessage(retryAfterSeconds: Int?): String {
+        val retryHint = retryAfterSeconds
+            ?.takeIf { it > 0 }
+            ?.let { seconds ->
+                val minutes = (seconds / 60).coerceAtLeast(1)
+                " — try again in ~$minutes min"
+            }
+            ?: ""
+        return "You've used up your free Gemini quota$retryHint. Falling back to offline parsing."
+    }
+
+    // ── Recipe translation (view-only, Gemini) ──
+
+    fun translateRecipe(recipe: Recipe, targetLanguage: String) {
+        if (_translatingRecipeIds.value.contains(recipe.id)) return
+        viewModelScope.launch {
+            _translatingRecipeIds.value = _translatingRecipeIds.value + recipe.id
+            _translationErrors.value = _translationErrors.value - recipe.id
+            try {
+                val translated = geminiClient.translateRecipe(recipe, targetLanguage)
+                _recipeTranslations.value = _recipeTranslations.value + (recipe.id to translated)
+                val displayName = SupportedLanguages.all.firstOrNull { it.code == targetLanguage }
+                    ?.displayName ?: targetLanguage
+                _userMessages.tryEmit("Recipe translated to $displayName")
+            } catch (e: RateLimitException) {
+                _translationErrors.value = _translationErrors.value + (recipe.id to quotaMessage(e.retryAfterSeconds))
+            } catch (e: Exception) {
+                _translationErrors.value = _translationErrors.value +
+                    (recipe.id to sanitizeGeminiMessage(e.message))
+            } finally {
+                _translatingRecipeIds.value = _translatingRecipeIds.value - recipe.id
+            }
+        }
+    }
+
+    fun clearRecipeTranslation(recipeId: String) {
+        _recipeTranslations.value = _recipeTranslations.value - recipeId
+        _translationErrors.value = _translationErrors.value - recipeId
     }
 
     private fun bitmapToJpegBytes(bitmap: Bitmap): ByteArray {
@@ -570,6 +857,17 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
+    fun moveRecipeToCategory(recipe: Recipe, newCategory: RecipeCategory) {
+        viewModelScope.launch {
+            dao.upsert(
+                recipe.copy(
+                    category = newCategory,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
     // ── Cooking Mode timers ──
 
     private val _activeTimers = MutableStateFlow<Map<String, ActiveTimer>>(emptyMap())
@@ -597,7 +895,8 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                         }
                     }
                     _activeTimers.value = updated
-                    if (!anyRunning) return@launch
+                    loadRingingTimers()
+                    if (!anyRunning && _ringingTimers.value.isEmpty()) return@launch
                 }
             } finally {
                 tickJob = null
@@ -712,44 +1011,93 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         context.stopService(Intent(context, TimerRingService::class.java))
     }
 
+    private suspend fun deleteAllRecipeData() {
+        File(app.filesDir, IMAGE_DIR).deleteRecursively()
+        dao.clearAll()
+    }
+
+    /** Deletes only recipes and their photos. Settings and API keys are left untouched. */
+    fun clearAllRecipeData() {
+        viewModelScope.launch { deleteAllRecipeData() }
+    }
+
+    /** Full reset: recipes, photos, settings, and API keys. */
     fun clearAllData() {
         viewModelScope.launch {
-            File(app.filesDir, IMAGE_DIR).deleteRecursively()
-            dao.clearAll()
+            deleteAllRecipeData()
             prefs.clearAll()
             credentialStore.clearApiKey()
             _settings.value = AppSettings()
         }
     }
 
-    // ── Export / Import ──
+    // ── Backup / Restore ──
 
-    fun exportRecipesJson(): String {
-        val all = recipes.value
-        return jsonPretty.encodeToString(RecipeExport.serializer(), RecipeExport(recipes = all))
+    fun zipBackupFileName(): String = backupManager.zipFileName()
+
+    fun jsonBackupFileName(): String = backupManager.jsonFileName()
+
+    suspend fun saveZipBackup(output: OutputStream): BackupResult =
+        backupManager.exportZip(recipes.value, output)
+
+    suspend fun saveJsonBackup(output: OutputStream): BackupResult =
+        backupManager.exportJson(recipes.value, output)
+
+    fun pickRestoreFile(uri: Uri) {
+        _pendingRestoreUri.value = uri
     }
 
-    fun importRecipesJson(json: String, onDone: (Int) -> Unit) {
-        viewModelScope.launch {
-            val recipes = try {
-                jsonLenient.decodeFromString(RecipeExport.serializer(), json).recipes
-            } catch (_: Exception) {
-                tryParseGeminiImport(json, jsonLenient)
-            }
+    fun dismissRestore() {
+        _pendingRestoreUri.value = null
+    }
 
-            if (recipes != null) {
-                recipes.forEach { dao.upsert(it) }
-                onDone(recipes.size)
-            } else {
-                onDone(-1)
+    fun confirmRestore() {
+        val uri = _pendingRestoreUri.value ?: return
+        _pendingRestoreUri.value = null
+        viewModelScope.launch {
+            _isRestoring.value = true
+            try {
+                val name = queryDisplayName(uri) ?: uri.toString()
+                val mime = app.contentResolver.getType(uri)
+                // Bulk-import category decision: BackupManager prompts once per
+                // recipe missing a `category` field. Cancelling any prompt aborts
+                // the whole restore so nothing is partially imported.
+                val resolveCategory: suspend (Recipe) -> RecipeCategory? = { recipe ->
+                    awaitCategorySelection(recipe)
+                }
+                val result = when {
+                    name.endsWith(".zip", ignoreCase = true) || mime == "application/zip" ->
+                        app.contentResolver.openInputStream(uri)?.let { backupManager.restoreZip(it, resolveCategory) }
+                    name.endsWith(".json", ignoreCase = true) || mime == "application/json" ->
+                        app.contentResolver.openInputStream(uri)?.let { backupManager.restoreJson(it, resolveCategory) }
+                    else -> null
+                }
+                when (result) {
+                    is BackupResult.Success -> _userMessages.tryEmit("Restored ${result.count} recipes")
+                    is BackupResult.Error -> _userMessages.tryEmit(result.message)
+                    null -> _userMessages.tryEmit("Unsupported backup file. Please pick a .zip or .json backup.")
+                }
+            } catch (e: Exception) {
+                _userMessages.tryEmit("Restore failed: ${e.message}")
+            } finally {
+                _isRestoring.value = false
             }
         }
     }
 
+    private fun queryDisplayName(uri: Uri): String? = try {
+        app.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0) cursor.getString(index) else null
+            } else null
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     companion object {
         private const val IMAGE_DIR = "recipe_images"
-        private val jsonPretty = kotlinx.serialization.json.Json { prettyPrint = true }
-        private val jsonLenient = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
         fun factory(app: VaultCuisineApp) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")

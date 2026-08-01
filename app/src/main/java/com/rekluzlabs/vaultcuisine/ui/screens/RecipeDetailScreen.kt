@@ -1,5 +1,6 @@
 package com.rekluzlabs.vaultcuisine.ui.screens
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -9,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,17 +28,23 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.DropdownMenu
@@ -47,9 +55,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -63,43 +73,55 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.rekluzlabs.vaultcuisine.R
 import com.rekluzlabs.vaultcuisine.MainViewModel
 import com.rekluzlabs.vaultcuisine.SectionType
 import com.rekluzlabs.vaultcuisine.data.FALLBACK_NOTES_MESSAGE
 import com.rekluzlabs.vaultcuisine.data.Recipe
+import com.rekluzlabs.vaultcuisine.data.RecipeCategory
+import com.rekluzlabs.vaultcuisine.data.SupportedLanguages
 import com.rekluzlabs.vaultcuisine.util.AmountParser
 import com.rekluzlabs.vaultcuisine.util.UnitConverter
 import com.rekluzlabs.vaultcuisine.util.UnitSystem
 import com.rekluzlabs.vaultcuisine.print.RecipePrinter
+import com.rekluzlabs.vaultcuisine.ui.components.CategoryPickerDialog
 import com.rekluzlabs.vaultcuisine.ui.components.RecipeThumbnail
 import com.rekluzlabs.vaultcuisine.ui.edit.EditableLine
 import com.rekluzlabs.vaultcuisine.ui.edit.LineDetail
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.io.File
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private val dateFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy  h:mm a")
     .withZone(ZoneId.systemDefault())
+
+private const val MAX_IMAGE_ZOOM = 5f
 
 private fun formatTimestamp(millis: Long): String =
     dateFormatter.format(Instant.ofEpochMilli(millis))
@@ -121,9 +143,14 @@ fun RecipeDetailScreen(
 
     var isEditing by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMoveCategoryDialog by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+
+    var showImageViewer by remember { mutableStateOf(false) }
+    var showTranslateDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val imagePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
@@ -133,10 +160,32 @@ fun RecipeDetailScreen(
         }
     }
 
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            pendingCameraUri?.let { vm.updateRecipeImage(recipeId, it) }
+        }
+        pendingCameraUri = null
+    }
+
     val onChangeRecipeImage: () -> Unit = {
         imagePicker.launch(
             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
         )
+    }
+    val onTakePhoto: () -> Unit = {
+        val filesDir = File(context.cacheDir, "images").apply { mkdirs() }
+        val file = File(filesDir, "camera_${recipeId}_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+        pendingCameraUri = uri
+        cameraLauncher.launch(uri)
     }
     val onRemoveRecipeImage: () -> Unit = { vm.removeRecipeImage(recipeId) }
 
@@ -170,7 +219,13 @@ fun RecipeDetailScreen(
 
     if (recipe == null) return
 
-    val context = LocalContext.current
+    val recipeTranslations by vm.recipeTranslations.collectAsState()
+    val translatingRecipeIds by vm.translatingRecipeIds.collectAsState()
+    val translationErrors by vm.translationErrors.collectAsState()
+    val isRecipeTranslated = recipeTranslations.containsKey(recipeId)
+    val displayedRecipe = recipeTranslations[recipeId] ?: recipe
+    val isTranslatingThis = translatingRecipeIds.contains(recipeId)
+    val translationError = translationErrors[recipeId]
 
     if (showDeleteDialog) {
         DeleteRecipeDialog(
@@ -184,6 +239,20 @@ fun RecipeDetailScreen(
         )
     }
 
+    if (showMoveCategoryDialog) {
+        CategoryPickerDialog(
+            initialCategory = recipe.category,
+            recipeTitle = recipe.title,
+            onConfirm = { newCategory ->
+                showMoveCategoryDialog = false
+                vm.moveRecipeToCategory(recipe, newCategory)
+                scope.launch { snackbarHostState.showSnackbar("Moved to ${newCategory.displayName}") }
+            },
+            onDismiss = { showMoveCategoryDialog = false }
+        )
+    }
+
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -244,6 +313,34 @@ fun RecipeDetailScreen(
                                     },
                                     leadingIcon = { Icon(Icons.Default.Print, null) }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Move to category") },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showMoveCategoryDialog = true
+                                    },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, null) }
+                                )
+                                if (vm.hasGeminiApiKey()) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (isTranslatingThis) "Translating…"
+                                                else if (isRecipeTranslated) "Show original"
+                                                else "Translate"
+                                            )
+                                        },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            if (isRecipeTranslated) {
+                                                vm.clearRecipeTranslation(recipeId)
+                                            } else if (!isTranslatingThis) {
+                                                showTranslateDialog = true
+                                            }
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.Translate, null) }
+                                    )
+                                }
                                 HorizontalDivider()
                                 DropdownMenuItem(
                                     text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
@@ -266,24 +363,53 @@ fun RecipeDetailScreen(
             )
         }
     ) { padding ->
-        if (editableLines != null) {
-            EditModeContent(
-                lines = editableLines!!,
-                recipe = recipe,
-                vm = vm,
-                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
-            )
-        } else {
-            ViewModeContent(
-                recipe = recipe,
-                vm = vm,
-                onReScan = onReScan,
-                onRetakePhoto = onRetakePhoto,
-                onChangeImage = onChangeRecipeImage,
-                onRemoveImage = onRemoveRecipeImage,
-                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            if (isTranslatingThis && editableLines == null) {
+                TranslationInProgressBanner()
+            } else if (translationError != null && editableLines == null) {
+                TranslationErrorBanner(
+                    message = translationError,
+                    onDismiss = { vm.clearRecipeTranslation(recipeId) }
+                )
+            }
+            if (editableLines != null) {
+                EditModeContent(
+                    lines = editableLines!!,
+                    recipe = recipe,
+                    vm = vm,
+                    modifier = Modifier.fillMaxSize().padding(16.dp)
+                )
+            } else {
+                ViewModeContent(
+                    recipe = displayedRecipe,
+                    vm = vm,
+                    onReScan = onReScan,
+                    onRetakePhoto = onRetakePhoto,
+                    onChangeImage = onChangeRecipeImage,
+                    onTakePhoto = onTakePhoto,
+                    onRemoveImage = onRemoveRecipeImage,
+                    onViewImage = { showImageViewer = true },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+        if (showImageViewer && recipe.sourceImagePath != null) {
+            FullScreenImageViewer(
+                path = recipe.sourceImagePath,
+                onDismiss = { showImageViewer = false }
             )
         }
+        if (showTranslateDialog) {
+            TranslateRecipeDialog(
+                translating = isTranslatingThis,
+                onSelect = { lang ->
+                    showTranslateDialog = false
+                    vm.translateRecipe(recipe, lang)
+                },
+                onDismiss = { showTranslateDialog = false }
+            )
+        }
+    }
     }
 }
 
@@ -311,19 +437,126 @@ private fun DeleteRecipeDialog(
 }
 
 @Composable
+private fun TranslateRecipeDialog(
+    translating: Boolean,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (translating) "Translating…" else "Translate recipe") },
+        text = {
+            if (translating) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                ) {
+                    CircularProgressIndicator(Modifier.size(24.dp))
+                }
+            } else {
+                Column {
+                    SupportedLanguages.all.forEach { language ->
+                        Text(
+                            text = language.displayName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(language.code) }
+                                .padding(vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !translating) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun TranslationInProgressBanner() {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Start,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Translating recipe…",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun TranslationErrorBanner(
+    message: String,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Start,
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp)
+        ) {
+            Icon(
+                Icons.Filled.Error,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "Translation failed: $message",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Filled.Close, contentDescription = "Dismiss", Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
 private fun ViewModeContent(
     recipe: Recipe,
     vm: MainViewModel,
     onReScan: ((newRecipeId: String) -> Unit)? = null,
     onRetakePhoto: (() -> Unit)? = null,
     onChangeImage: () -> Unit = {},
+    onTakePhoto: () -> Unit = {},
     onRemoveImage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val baseServings = recipe.servings
     var targetServings by remember(baseServings) { mutableStateOf(baseServings ?: 1) }
+    var showImageViewer by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier) {
+    Box(modifier) {
+        Image(
+            painter = painterResource(R.drawable.background_whisk),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            alpha = 0.19f
+        )
+        LazyColumn(Modifier.fillMaxSize().padding(16.dp)) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -338,7 +571,9 @@ private fun ViewModeContent(
                 RecipeImageHeader(
                     recipe = recipe,
                     onChangeImage = onChangeImage,
+                    onTakePhoto = onTakePhoto,
                     onRemoveImage = onRemoveImage,
+                    onViewImage = { showImageViewer = true },
                     modifier = Modifier
                         .size(132.dp)
                         .clip(RoundedCornerShape(12.dp))
@@ -569,6 +804,13 @@ private fun ViewModeContent(
                 textAlign = TextAlign.Center
             )
         }
+        }
+        if (showImageViewer && recipe.sourceImagePath != null) {
+            FullScreenImageViewer(
+                path = recipe.sourceImagePath,
+                onDismiss = { showImageViewer = false }
+            )
+        }
     }
 }
 
@@ -579,7 +821,9 @@ private data class DragState(val itemId: String, val offset: Float)
 private fun RecipeImageHeader(
     recipe: Recipe,
     onChangeImage: () -> Unit,
+    onTakePhoto: () -> Unit,
     onRemoveImage: () -> Unit,
+    onViewImage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -588,27 +832,129 @@ private fun RecipeImageHeader(
             path = recipe.sourceImagePath,
             contentDescription = "Recipe image",
             modifier = modifier.combinedClickable(
-                onClick = {},
+                onClick = onViewImage,
                 onLongClick = { showMenu = true }
             ),
             targetSize = 1024
         )
+        IconButton(
+            onClick = { showMenu = true },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(4.dp)
+                .size(32.dp)
+                .background(
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                    RoundedCornerShape(8.dp)
+                )
+        ) {
+            Icon(
+                Icons.Filled.PhotoCamera,
+                contentDescription = if (recipe.sourceImagePath != null) "Change image" else "Add image",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
         DropdownMenu(
             expanded = showMenu,
             onDismissRequest = { showMenu = false }
         ) {
             DropdownMenuItem(
-                text = { Text(if (recipe.sourceImagePath != null) "Change image" else "Add image") },
-                onClick = { showMenu = false; onChangeImage() }
+                text = { Text("Take photo") },
+                onClick = { showMenu = false; onTakePhoto() },
+                leadingIcon = { Icon(Icons.Filled.PhotoCamera, null) }
+            )
+            DropdownMenuItem(
+                text = { Text("Choose from device") },
+                onClick = { showMenu = false; onChangeImage() },
+                leadingIcon = { Icon(Icons.Filled.Image, null) }
             )
             if (recipe.sourceImagePath != null) {
                 DropdownMenuItem(
                     text = { Text("Remove image", color = MaterialTheme.colorScheme.error) },
-                    onClick = { showMenu = false; onRemoveImage() }
+                    onClick = { showMenu = false; onRemoveImage() },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Filled.Delete,
+                            null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 )
             }
         }
     }
+}
+
+/**
+ * Full-screen pinch-zoom viewer for a recipe image. Pan is scaled by the
+ * current zoom so the image tracks the gesture 1:1 while zoomed, and the
+ * offset is clamped to the edges of the viewport so the image can never be
+ * dragged so far that blank space shows at the border.
+ */
+@Composable
+private fun FullScreenImageViewer(
+    path: String,
+    onDismiss: () -> Unit
+) {
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
+
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, MAX_IMAGE_ZOOM)
+                    // Pan must be scaled by the current zoom factor; otherwise the
+                    // image drifts ahead of the finger when zoomed in.
+                    offset = offset + pan * scale
+                    offset = clampZoomOffset(offset, scale, viewport)
+                }
+            }
+            .onSizeChanged { viewport = it }
+    ) {
+        RecipeThumbnail(
+            path = path,
+            contentDescription = "Recipe image",
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                }
+        )
+        IconButton(
+            onClick = onDismiss,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Close image viewer",
+                tint = Color.White
+            )
+        }
+    }
+}
+
+/**
+ * Keeps a scaled image covering the viewport: at scale `s`, the image overflows
+ * by `(s - 1) * viewport / 2` on each side, so the offset is bounded by that.
+ * Anything at scale 1 (or an unmeasured viewport) forces a centered offset.
+ */
+private fun clampZoomOffset(offset: Offset, scale: Float, viewport: IntSize): Offset {
+    if (scale <= 1f || viewport.width == 0 || viewport.height == 0) return Offset.Zero
+    val maxX = (scale - 1f) * viewport.width / 2f
+    val maxY = (scale - 1f) * viewport.height / 2f
+    return Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -713,6 +1059,29 @@ private fun EditModeContent(
                 Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("Add step")
+            }
+        }
+
+        item { Spacer(Modifier.height(16.dp)) }
+        item { Text("Category", style = MaterialTheme.typography.titleMedium) }
+        item {
+            var showCategoryPicker by remember { mutableStateOf(false) }
+            val editingCategory by vm.editingCategory.collectAsState()
+            OutlinedButton(
+                onClick = { showCategoryPicker = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Category, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(editingCategory.displayName)
+            }
+            if (showCategoryPicker) {
+                CategoryPickerDialog(
+                    initialCategory = editingCategory,
+                    recipeTitle = recipe.title,
+                    onConfirm = { vm.setEditingCategory(it); showCategoryPicker = false },
+                    onDismiss = { showCategoryPicker = false }
+                )
             }
         }
 

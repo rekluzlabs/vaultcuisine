@@ -23,6 +23,10 @@ import kotlinx.coroutines.withContext
  * Loads a recipe image from an app-private file path. Falls back to a
  * placeholder icon when the path is null or the file can't be decoded.
  * Decodes with sampling so grid thumbnails stay cheap on memory.
+ *
+ * Uses [ContentScale.Fit] by default so the whole image stays visible —
+ * nothing is cropped at the edges, which matters for photos that contain
+ * readable text. Content is never scaled up past the original bounds.
  */
 @Composable
 fun RecipeThumbnail(
@@ -30,7 +34,8 @@ fun RecipeThumbnail(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     targetSize: Int = 1024,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Fit,
+    alignment: Alignment = Alignment.Center
 ) {
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = path) {
         value = if (path != null) {
@@ -40,14 +45,16 @@ fun RecipeThumbnail(
     val loaded = bitmap
 
     if (loaded != null) {
-        Image(
-            bitmap = loaded.asImageBitmap(),
-            contentDescription = contentDescription,
-            modifier = modifier,
-            contentScale = contentScale
-        )
+        Box(modifier = modifier, contentAlignment = alignment) {
+            Image(
+                bitmap = loaded.asImageBitmap(),
+                contentDescription = contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = contentScale
+            )
+        }
     } else {
-        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Box(modifier = modifier, contentAlignment = alignment) {
             Icon(
                 imageVector = Icons.Filled.Restaurant,
                 contentDescription = contentDescription,

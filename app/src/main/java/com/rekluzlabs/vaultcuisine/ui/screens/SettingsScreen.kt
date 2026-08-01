@@ -2,10 +2,15 @@ package com.rekluzlabs.vaultcuisine.ui.screens
 
 import android.content.Intent
 import android.graphics.SurfaceTexture
+import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import android.view.Surface
 import android.view.TextureView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,6 +33,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Error
@@ -78,6 +84,7 @@ import com.rekluzlabs.vaultcuisine.R
 import com.rekluzlabs.vaultcuisine.ai.GeminiModels
 import com.rekluzlabs.vaultcuisine.ai.GeminiModelVariant
 import com.rekluzlabs.vaultcuisine.data.AppSettings
+import com.rekluzlabs.vaultcuisine.data.SupportedLanguages
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -91,31 +98,72 @@ fun SettingsScreen(
     onClearGeminiKey: () -> Unit,
     onValidateKey: suspend (String) -> Boolean,
     onReviewPrivacyInfo: () -> Unit = {},
-    onExportRecipes: () -> Unit,
-    onImportRecipes: () -> Unit,
-    onClearAllData: () -> Unit,
+    onBackupRestore: () -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var showClearDialog by remember { mutableStateOf(false) }
     var showClearKeysDialog by remember { mutableStateOf(false) }
     var showApiKeyDialog by remember { mutableStateOf(false) }
     var showIntroVideo by remember { mutableStateOf(false) }
 
-    if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            title = { Text("Clear all data?") },
-            text = { Text("This will permanently delete all recipes and reset settings. This cannot be undone.") },
-            confirmButton = {
-                TextButton(onClick = { showClearDialog = false; onClearAllData() }) {
-                    Text("Clear", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
+    val testPlayer = remember { MediaPlayer() }
+    var testSoundPlaying by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        onDispose {
+            try { testPlayer.release() } catch (_: Exception) { }
+        }
+    }
+
+    fun playAlarmSound(uri: String) {
+        try {
+            if (testPlayer.isPlaying) testPlayer.stop()
+            testPlayer.reset()
+            testPlayer.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            val soundUri = uri.ifEmpty {
+                RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM).toString()
             }
-        )
+            testPlayer.setDataSource(context, Uri.parse(soundUri))
+            testPlayer.isLooping = false
+            testPlayer.setOnCompletionListener { testSoundPlaying = false }
+            testPlayer.prepare()
+            testPlayer.start()
+            testSoundPlaying = true
+        } catch (_: Exception) { }
+    }
+
+    fun stopAlarmSound() {
+        try {
+            if (testPlayer.isPlaying) testPlayer.stop()
+        } catch (_: Exception) { }
+        testSoundPlaying = false
+    }
+
+    val alarmSoundName = remember(settings.alarmSoundUri) {
+        if (settings.alarmSoundUri.isEmpty()) {
+            "Default alarm"
+        } else {
+            RingtoneManager.getRingtone(context, Uri.parse(settings.alarmSoundUri))
+                ?.getTitle(context) ?: "Custom sound"
+        }
+    }
+
+    val ringtoneLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uri = result.data?.let { data ->
+            if (Build.VERSION.SDK_INT >= 33) {
+                data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                data.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI)
+            }
+        }
+        onSettingsChanged(settings.copy(alarmSoundUri = uri?.toString() ?: ""))
     }
 
     if (showClearKeysDialog) {
@@ -186,7 +234,7 @@ fun SettingsScreen(
             SettingsDropdown(
                 label = "OCR language",
                 value = settings.ocrLanguage,
-                options = listOf("en" to "English", "fr" to "French", "de" to "German", "es" to "Spanish", "it" to "Italian"),
+                options = SupportedLanguages.all.map { it.code to it.displayName },
                 onValueChanged = { onSettingsChanged(settings.copy(ocrLanguage = it)) }
             )
 
@@ -198,21 +246,63 @@ fun SettingsScreen(
             SectionHeader("Gemini API")
 
             Text(
-                text = "Used to read and structure scanned recipe images. Images are sent to Google's Gemini API for processing when configured.",
+                text = "Use cloud AI for enhanced recipe extraction. When disabled, the app stays fully offline with on-device ML Kit OCR.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            SettingsDropdown(
-                label = "AI Model",
-                value = settings.geminiModelId,
-                options = GeminiModels.variants.map { it.id to it.displayName },
-                onValueChanged = {
-                    onSettingsChanged(settings.copy(geminiModelId = it))
-                    showApiKeyDialog = true
-                }
+            SettingsSwitch(
+                label = "Enable Gemini API Features",
+                description = "Use cloud AI for enhanced recipe extraction. When off, the app stays fully offline.",
+                checked = settings.geminiEnabled,
+                onCheckedChange = { onSettingsChanged(settings.copy(geminiEnabled = it)) }
             )
+
+            Card(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("API Key", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = if (hasGeminiKey) "•••••••••••••••• (Stored securely)" else "Not configured",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (hasGeminiKey) {
+                        if (keyVerified) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = "API key verified",
+                                tint = Color(0xFF4CAF50),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Verified",
+                                color = Color(0xFF4CAF50),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.Error,
+                                contentDescription = "API key not verified",
+                                tint = Color(0xFFE53935),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                "Unverified",
+                                color = Color(0xFFE53935),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    }
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -233,36 +323,6 @@ fun SettingsScreen(
                         Text("Configure API Key")
                     }
                 }
-                if (hasGeminiKey) {
-                    Spacer(Modifier.width(8.dp))
-                    if (keyVerified) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = "API key verified",
-                            tint = Color(0xFF4CAF50),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "Verified",
-                            color = Color(0xFF4CAF50),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    } else {
-                        Icon(
-                            Icons.Filled.Error,
-                            contentDescription = "API key not verified",
-                            tint = Color(0xFFE53935),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            "Unverified",
-                            color = Color(0xFFE53935),
-                            style = MaterialTheme.typography.labelMedium
-                        )
-                    }
-                }
             }
 
             if (hasGeminiKey) {
@@ -271,8 +331,28 @@ fun SettingsScreen(
                     onClick = { showClearKeysDialog = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Delete API Key", color = MaterialTheme.colorScheme.error)
+                    Text("Clear / Delete Key", color = MaterialTheme.colorScheme.error)
                 }
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            SettingsDropdown(
+                label = "AI Model",
+                value = settings.geminiModelId,
+                options = GeminiModels.variants.map { it.id to it.displayName },
+                enabled = hasGeminiKey,
+                onValueChanged = {
+                    onSettingsChanged(settings.copy(geminiModelId = it))
+                }
+            )
+            if (!hasGeminiKey) {
+                Text(
+                    text = "Configure an API key to choose a model. One key works for all Gemini models.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
             }
 
             Text(
@@ -315,24 +395,79 @@ fun SettingsScreen(
             // ── Data ──
             SectionHeader("Data")
 
-            OutlinedButton(
-                onClick = onExportRecipes,
+            Card(
+                onClick = onBackupRestore,
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Export all recipes as JSON") }
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Backup, Restore & Delete", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = "Save a backup of your recipes and photos, restore one later, or clear everything and start fresh.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
+            // ── Timers & Alarms ──
+            SectionHeader("Timers & Alarms")
+
+            Card(
+                onClick = {
+                    val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select alarm sound")
+                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                        putExtra(
+                            RingtoneManager.EXTRA_RINGTONE_DEFAULT_URI,
+                            RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        )
+                        settings.alarmSoundUri.ifEmpty { null }?.let {
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(it))
+                        }
+                    }
+                    ringtoneLauncher.launch(intent)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Alarm sound", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            text = alarmSoundName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
-
             OutlinedButton(
-                onClick = onImportRecipes,
+                onClick = {
+                    if (testSoundPlaying) stopAlarmSound()
+                    else playAlarmSound(settings.alarmSoundUri)
+                },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Import recipes from JSON") }
-
-            Spacer(Modifier.height(8.dp))
-
-            OutlinedButton(
-                onClick = { showClearDialog = true },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Clear all data", color = MaterialTheme.colorScheme.error) }
+            ) {
+                Text(if (testSoundPlaying) "Stop sound" else "Test sound")
+            }
 
             Spacer(Modifier.height(24.dp))
             HorizontalDivider()
@@ -590,23 +725,25 @@ private fun SettingsDropdown(
     label: String,
     value: String,
     options: List<Pair<String, String>>,
-    onValueChanged: (String) -> Unit
+    onValueChanged: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     var expanded by remember { mutableStateOf(false) }
     val selectedLabel = options.find { it.first == value }?.second ?: value
 
     ExposedDropdownMenuBox(
         expanded = expanded,
-        onExpandedChange = { expanded = it },
+        onExpandedChange = { if (enabled) expanded = it },
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
     ) {
         OutlinedTextField(
             value = selectedLabel,
             onValueChange = {},
             readOnly = true,
+            enabled = enabled,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth()
+            modifier = Modifier.menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = enabled).fillMaxWidth()
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (key, display) ->

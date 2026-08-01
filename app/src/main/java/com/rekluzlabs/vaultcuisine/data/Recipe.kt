@@ -9,8 +9,16 @@ import kotlinx.serialization.Serializable
 /**
  * Schema versioned from day one so exported JSON files stay importable
  * across future app updates.
+ *
+ * v5: added `category` (RecipeCategory) so recipes can be filed under the
+ * home screen's category grid instead of listed flat.
+ *
+ * v6: renamed RecipeCategory constants/displayNames from grocery-oriented
+ * (Produce, Meats & Seafood, ...) to course/meal-type categories
+ * (Breakfast & Brunch, Main Dishes, ...). Stored constant names changed,
+ * so old values no longer parse and require a destructive migration.
  */
-const val CURRENT_SCHEMA_VERSION = 4
+const val CURRENT_SCHEMA_VERSION = 6
 
 /**
  * Message set by [com.rekluzlabs.vaultcuisine.ai.HeuristicStructurer]'s fallback
@@ -44,6 +52,7 @@ data class Recipe(
     @PrimaryKey val id: String,
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val title: String,
+    val category: RecipeCategory = RecipeCategory.OTHER,
     val servings: Int? = null,
     val ingredients: List<RecipeIngredient> = emptyList(),
     val steps: List<RecipeStep> = emptyList(),

@@ -5,10 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.rekluzlabs.vaultcuisine.data.CURRENT_SCHEMA_VERSION
 import com.rekluzlabs.vaultcuisine.data.Recipe
 import com.rekluzlabs.vaultcuisine.data.RecipeConverters
 
-@Database(entities = [Recipe::class], version = 6, exportSchema = false)
+@Database(entities = [Recipe::class], version = CURRENT_SCHEMA_VERSION, exportSchema = false)
 @TypeConverters(RecipeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recipeDao(): RecipeDao
@@ -25,6 +26,8 @@ abstract class AppDatabase : RoomDatabase() {
                 // TODO: Replace with a real Migration (or Room auto-migration)
                 //  before first production release — destructive migration will
                 //  silently wipe all user data on any future schema change.
+                //  Pre-release: keeping fallbackToDestructiveMigration so category
+                //  renames (v5->v6) wipe dev data instead of failing.
                 ).fallbackToDestructiveMigration(true).build().also { INSTANCE = it }
             }
     }

@@ -1,5 +1,13 @@
 package com.rekluzlabs.vaultcuisine.timer
 
+const val CLOCK_TIMER_RECIPE_ID = "clock_timer"
+const val CLOCK_TIMER_STEP_INDEX = 0
+const val CLOCK_TIMER_MAP_KEY = "${CLOCK_TIMER_RECIPE_ID}_$CLOCK_TIMER_STEP_INDEX"
+
+const val CLOCK_ALARM_RECIPE_ID = "clock_alarm"
+const val CLOCK_ALARM_STEP_INDEX = 0
+const val CLOCK_ALARM_MAP_KEY = "${CLOCK_ALARM_RECIPE_ID}_$CLOCK_ALARM_STEP_INDEX"
+
 data class ActiveTimer(
     val recipeId: String,
     val stepIndex: Int,

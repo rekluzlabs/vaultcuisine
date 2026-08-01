@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import androidx.core.app.NotificationCompat
-import com.rekluzlabs.vaultcuisine.MainActivity
+import com.rekluzlabs.vaultcuisine.timer.TimerBroadcastReceiver.Companion.EXTRA_RECIPE_ID
+import com.rekluzlabs.vaultcuisine.timer.TimerBroadcastReceiver.Companion.EXTRA_STEP_INDEX
+import com.rekluzlabs.vaultcuisine.timer.TimerBroadcastReceiver.Companion.EXTRA_STEP_TEXT
 
 object TimerNotificationHelper {
 
@@ -44,12 +46,14 @@ object TimerNotificationHelper {
         context: Context,
         recipeId: String,
         stepIndex: Int,
-        stepText: String
+        stepText: String,
+        useFullScreenIntent: Boolean = true
     ): Notification {
-        val openIntent = Intent(context, MainActivity::class.java).apply {
+        val openIntent = Intent(context, AlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("open_cooking", recipeId)
-            putExtra("cooking_step", stepIndex)
+            putExtra(EXTRA_RECIPE_ID, recipeId)
+            putExtra(EXTRA_STEP_INDEX, stepIndex)
+            putExtra(EXTRA_STEP_TEXT, stepText)
         }
         val contentPendingIntent = PendingIntent.getActivity(
             context, recipeId.hashCode() + stepIndex, openIntent,
@@ -68,17 +72,27 @@ object TimerNotificationHelper {
 
         val label = stepText.take(60)
 
-        return NotificationCompat.Builder(context, RING_CHANNEL_ID)
+        val title = when (recipeId) {
+            CLOCK_TIMER_RECIPE_ID -> "\u23F0 Timer done!"
+            CLOCK_ALARM_RECIPE_ID -> "\u23F0 Alarm!"
+            else -> "\u23F0 Step ${stepIndex + 1} timer done!"
+        }
+
+        val builder = NotificationCompat.Builder(context, RING_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("\u23F0 Step ${stepIndex + 1} timer done!")
+            .setContentTitle(title)
             .setContentText(label)
             .setContentIntent(contentPendingIntent)
-            .setFullScreenIntent(contentPendingIntent, true)
             .setOngoing(true)
             .setAutoCancel(false)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Dismiss", stopPendingIntent)
-            .build()
+
+        if (useFullScreenIntent) {
+            builder.setFullScreenIntent(contentPendingIntent, true)
+        }
+
+        return builder.build()
     }
 }

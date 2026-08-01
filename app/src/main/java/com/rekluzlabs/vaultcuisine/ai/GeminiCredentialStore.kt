@@ -8,6 +8,10 @@ import java.security.GeneralSecurityException
 
 class GeminiCredentialStore(context: Context) {
 
+    init {
+        migrateLegacyPlaintextKey(context)
+    }
+
     private val prefs: SharedPreferences = run {
         val mk = try {
             MasterKey.Builder(context, MasterKey.DEFAULT_MASTER_KEY_ALIAS)
@@ -41,8 +45,28 @@ class GeminiCredentialStore(context: Context) {
 
     fun hasApiKey(): Boolean = getApiKey() != null
 
+    /**
+     * One-time migration from the pre-encryption plaintext store. The key was
+     * historically persisted (if at all) under the same prefs file this store
+     * now uses, before EncryptedSharedPreferences took it over. If a plaintext
+     * `api_key` entry still exists there, copy it into the encrypted store and
+     * delete the plaintext entry. When the file is already the encrypted store
+     * (the normal case) `contains(KEY_API_KEY)` is false — encrypted keys never
+     * match the literal name — so this is a safe no-op.
+     */
+    private fun migrateLegacyPlaintextKey(context: Context) {
+        val legacy = context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
+        if (!legacy.contains(KEY_API_KEY)) return
+        val plain = legacy.getString(KEY_API_KEY, null)
+        if (!plain.isNullOrBlank() && getApiKey() == null) {
+            saveApiKey(plain)
+        }
+        legacy.edit().remove(KEY_API_KEY).commit()
+    }
+
     companion object {
         private const val PREFS_NAME = "gemini_credentials"
+        private const val LEGACY_PREFS_NAME = "gemini_credentials"
         private const val KEY_API_KEY = "api_key"
     }
 }
