@@ -289,7 +289,7 @@ class GeminiOcrClient(
                 response = execute(request)
             }
 
-            val responseBody = response.body?.string() ?: ""
+            val responseBody = response.body.string()
             if (!response.isSuccessful) {
                 throw when (response.code) {
                     429 -> RateLimitException(response.header("Retry-After")?.toIntOrNull())

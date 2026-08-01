@@ -1,3 +1,8 @@
+// security-crypto 1.1.0 deprecates the whole EncryptedSharedPreferences/MasterKey
+// surface with no drop-in replacement from Google, so these classes are still the
+// only supported way to use this library. Suppress to keep the build warning-free.
+@file:Suppress("DEPRECATION")
+
 package com.rekluzlabs.vaultcuisine.ai
 
 import android.content.Context
