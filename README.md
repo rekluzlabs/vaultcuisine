@@ -1,7 +1,7 @@
 # VaultCuisine
 
 <p align="center">
-  <img width="300" alt="VaultCuisine Logo" src="icon4VC-removebg-preview.png" />
+  <img width="300" alt="VaultCuisine Logo" src="images/vaultcuisine_icon.png" />
 </p>
 
 An Android application that converts printed and handwritten recipe cards into editable, structured data. Text recognition runs locally on device by default. Cloud AI structuring is opt-in, requires a user-provided API key, and transmits compressed, EXIF-stripped images only after explicit consent.
