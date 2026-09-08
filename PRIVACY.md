@@ -1,7 +1,7 @@
 # VaultCuisine Privacy Policy
 
 **Rekluz Labs**
-Effective Date: July 30, 2026 · Version 1.0
+Effective Date: September 08, 2026 · Version 1.0.1
 
 At Rekluz Labs, we respect your privacy and are committed to protecting
 your personal data. This Privacy Policy explains how VaultCuisine handles
@@ -35,32 +35,24 @@ on.
 ## 3. Optional Cloud AI Structuring (Your Own Gemini API Key)
 
 VaultCuisine can optionally use Google's Gemini API to improve structuring
-accuracy, especially on handwritten cards. This is **opt-in and
-user-controlled** at every step:
+accuracy, especially on handwritten cards. This is opt-in and
+user-controlled at every step:
 
-> **Critical point:** Cloud AI structuring only runs if you've entered your
-> own Gemini API key **and** explicitly accepted a first-use consent
-> dialog before any image is sent. If you decline, or haven't added a key,
-> VaultCuisine automatically falls back to fully offline structuring — the
-> app never silently uploads anything.
+Critical point: Cloud AI structuring only runs if you've entered your
+own Gemini API key and explicitly accepted a first-use consent
+dialog before any image is sent. If you decline, or haven't added a key,
+VaultCuisine automatically falls back to fully offline structuring — the
+app never silently uploads anything.
 
-When cloud AI structuring is active:
-
-- A **stripped (EXIF-removed) and compressed copy** of the relevant image
-  is sent directly from your device to Google's Gemini API, authenticated
-  with your own API key.
-- The **original full-quality photo never leaves your device** — only the
-  transient, stripped copy generated for that specific request is sent, and
-  it is not retained by VaultCuisine after the request completes.
-- Rekluz Labs' own infrastructure never sees this data in transit — there
-  is no Rekluz Labs server in the path. The request goes straight from your
-  device to Google's API.
-- Google handles this data according to their own privacy policy:
-  [policies.google.com/privacy](https://policies.google.com/privacy). Please
-  review it if you have questions about how Google processes API requests.
-- You can revoke this at any time by removing your API key in Settings.
-  Consent is also reset automatically whenever you change or re-save your
-  API key, so you're asked to confirm again.
+Free vs. paid API key tier matters. If your Gemini API key is on
+Google's free tier, Google's terms permit them to use your submitted
+images and text to improve their products, and human reviewers may
+access this data. If your key is on a paid tier (billing enabled in
+Google AI Studio), Google does not use your prompts or files to improve
+their products. VaultCuisine has no way to detect or control which tier
+your key is on — this is determined entirely by your Google Cloud
+project settings. Review Google's Gemini API terms
+if this distinction matters to you.
 
 ## 4. Data Storage and Retention
 
@@ -132,4 +124,4 @@ Email: [rekluzlabs@gmail.com](mailto:rekluzlabs@gmail.com)
 
 ---
 
-*This Privacy Policy was last updated on July 30, 2026.*
+*This Privacy Policy was last updated on September 08, 2026.*
