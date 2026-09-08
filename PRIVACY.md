@@ -63,6 +63,8 @@ When cloud AI structuring is active:
   Consent is also reset automatically whenever you change or re-save your
   API key, so you're asked to confirm again.
 
+  Free vs. paid API key tier matters. If your Gemini API key is on Google's free tier, Google's terms permit them to use your submitted images and text to improve their products, and human reviewers may access this data. If your key is on a paid tier (billing enabled in Google AI Studio), Google does not use your prompts or files to improve their products. VaultCuisine has no way to detect or control which tier your key is on. This is determined entirely by your Google Cloud project settings. Review Google's Gemini API terms if this distinction matters to you.
+
 ## 4. Data Storage and Retention
 
 All your data — recipes, photos, preferences, and your API key — is stored
