@@ -35,16 +35,24 @@ on.
 ## 3. Optional Cloud AI Structuring (Your Own Gemini API Key)
 
 VaultCuisine can optionally use Google's Gemini API to improve structuring
-accuracy, especially on handwritten cards. This is **opt-in and
-user-controlled** at every step:
+accuracy, especially on handwritten cards. This is opt-in and
+user-controlled at every step:
 
-> **Critical point:** Cloud AI structuring only runs if you've entered your
-> own Gemini API key **and** explicitly accepted a first-use consent
-> dialog before any image is sent. If you decline, or haven't added a key,
-> VaultCuisine automatically falls back to fully offline structuring — the
-> app never silently uploads anything.
-> Free vs. paid API key tier matters. If your Gemini API key is on Google's free tier, Google's terms permit them to use your submitted images and text to improve their products, and human reviewers may access this data. If your key is on a paid tier (billing enabled in Google AI Studio), Google does not use your prompts or files to improve their products. VaultCuisine has no way to detect or control which tier your key is on. This is determined entirely by your Google Cloud project settings. Review Google's Gemini API terms if this distinction matters to you.
+Critical point: Cloud AI structuring only runs if you've entered your
+own Gemini API key and explicitly accepted a first-use consent
+dialog before any image is sent. If you decline, or haven't added a key,
+VaultCuisine automatically falls back to fully offline structuring — the
+app never silently uploads anything.
 
+Free vs. paid API key tier matters. If your Gemini API key is on
+Google's free tier, Google's terms permit them to use your submitted
+images and text to improve their products, and human reviewers may
+access this data. If your key is on a paid tier (billing enabled in
+Google AI Studio), Google does not use your prompts or files to improve
+their products. VaultCuisine has no way to detect or control which tier
+your key is on — this is determined entirely by your Google Cloud
+project settings. Review Google's Gemini API terms
+if this distinction matters to you.
 When cloud AI structuring is active:
 
 - A **stripped (EXIF-removed) and compressed copy** of the relevant image
