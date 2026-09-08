@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Rekluz Labs. All rights reserved.
+ * This code and its assets are the exclusive property of Rekluz Labs.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
 package com.rekluzlabs.vaultcuisine
 
 import android.app.AlarmManager
@@ -487,6 +492,28 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
+    fun updateIngredientAmount(id: String, amount: String) {
+        _editableLines.value = _editableLines.value?.map { line ->
+            if (line.id == id && line.detail is LineDetail.Ingredient) {
+                val d = line.detail as LineDetail.Ingredient
+                line.copy(detail = d.copy(amount = amount.ifBlank { null }))
+            } else {
+                line
+            }
+        }
+    }
+
+    fun updateIngredientUnit(id: String, unit: String) {
+        _editableLines.value = _editableLines.value?.map { line ->
+            if (line.id == id && line.detail is LineDetail.Ingredient) {
+                val d = line.detail as LineDetail.Ingredient
+                line.copy(detail = d.copy(unit = unit.ifBlank { null }))
+            } else {
+                line
+            }
+        }
+    }
+
     fun addLine(section: SectionType) {
         val lines = _editableLines.value?.toMutableList() ?: return
         val newLine = EditableLine(
@@ -702,7 +729,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             HeuristicStructurer().structure(rawText)
         } catch (e: RateLimitException) {
             Log.e("GeminiScan", "image mode: rate limited", e)
-            _userMessages.tryEmit(quotaMessage(e.retryAfterSeconds))
+            _userMessages.tryEmit(quotaMessage(e.retryAfterSeconds, "Falling back to offline parsing."))
             _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
         } catch (e: NetworkException) {
@@ -726,7 +753,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             geminiClient.structure(rawText, modelId)
         } catch (e: RateLimitException) {
             Log.e("GeminiScan", "text mode: rate limited", e)
-            _userMessages.tryEmit(quotaMessage(e.retryAfterSeconds))
+            _userMessages.tryEmit(quotaMessage(e.retryAfterSeconds, "Falling back to offline parsing."))
             _scanMessage.value = "Recipe being read locally on device only"
             HeuristicStructurer().structure(rawText)
         } catch (e: Exception) {
@@ -736,7 +763,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
         }
     }
 
-    private fun quotaMessage(retryAfterSeconds: Int?): String {
+    private fun quotaMessage(retryAfterSeconds: Int?, fallbackNote: String): String {
         val retryHint = retryAfterSeconds
             ?.takeIf { it > 0 }
             ?.let { seconds ->
@@ -744,7 +771,7 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
                 " — try again in ~$minutes min"
             }
             ?: ""
-        return "You've used up your free Gemini quota$retryHint. Falling back to offline parsing."
+        return "You've used up your free Gemini quota$retryHint. $fallbackNote"
     }
 
     // ── Recipe translation (view-only, Gemini) ──
@@ -755,13 +782,16 @@ class MainViewModel(private val app: VaultCuisineApp) : ViewModel() {
             _translatingRecipeIds.value = _translatingRecipeIds.value + recipe.id
             _translationErrors.value = _translationErrors.value - recipe.id
             try {
-                val translated = geminiClient.translateRecipe(recipe, targetLanguage)
+                val translated = geminiClient.translateRecipe(
+                    recipe, targetLanguage, settings.value.geminiModelId
+                )
                 _recipeTranslations.value = _recipeTranslations.value + (recipe.id to translated)
                 val displayName = SupportedLanguages.all.firstOrNull { it.code == targetLanguage }
                     ?.displayName ?: targetLanguage
                 _userMessages.tryEmit("Recipe translated to $displayName")
             } catch (e: RateLimitException) {
-                _translationErrors.value = _translationErrors.value + (recipe.id to quotaMessage(e.retryAfterSeconds))
+                _translationErrors.value = _translationErrors.value +
+                    (recipe.id to quotaMessage(e.retryAfterSeconds, "Showing the original recipe instead."))
             } catch (e: Exception) {
                 _translationErrors.value = _translationErrors.value +
                     (recipe.id to sanitizeGeminiMessage(e.message))

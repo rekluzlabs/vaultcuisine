@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Rekluz Labs. All rights reserved.
+ * This code and its assets are the exclusive property of Rekluz Labs.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
 // security-crypto 1.1.0 deprecates the whole EncryptedSharedPreferences/MasterKey
 // surface with no drop-in replacement from Google, so these classes are still the
 // only supported way to use this library. Suppress to keep the build warning-free.

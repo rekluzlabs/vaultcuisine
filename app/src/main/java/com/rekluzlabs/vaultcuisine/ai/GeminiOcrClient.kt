@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Rekluz Labs. All rights reserved.
+ * This code and its assets are the exclusive property of Rekluz Labs.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
 package com.rekluzlabs.vaultcuisine.ai
 
 import com.rekluzlabs.vaultcuisine.data.Recipe
@@ -36,7 +41,8 @@ private data class GeminiApiResponse(
 
 @Serializable
 private data class Candidate(
-    val content: Content? = null
+    val content: Content? = null,
+    val finishReason: String? = null
 )
 
 @Serializable
@@ -192,29 +198,37 @@ class GeminiOcrClient(
      * returned copy (e.g. view-only display cached per language). Numeric
      * amounts and timer values are preserved as-is.
      */
-    suspend fun translateRecipe(recipe: Recipe, targetLanguage: String): Recipe {
+    suspend fun translateRecipe(recipe: Recipe, targetLanguage: String, modelId: String): Recipe {
         val apiKey = credentialStore.getApiKey() ?: throw MissingApiKeyException()
         val prompt = buildTranslatePrompt(recipe, targetLanguage)
         var dto: GeminiTranslationDto? = null
         var lastError: Exception? = null
-        repeat(2) { attempt ->
-            if (dto != null) return@repeat
-            try {
-                val responseJson = callGeminiApi(
-                    apiKey,
-                    GeminiModels.DEFAULT_MODEL_ID,
-                    prompt,
-                    imageBytes = null,
-                    generationConfig = buildTranslationConfig()
-                )
-                Log.d("GeminiTranslate", "attempt ${attempt + 1} returned ${responseJson.length} bytes")
-                dto = parseTranslationText(responseJson)
-            } catch (e: MalformedResponseException) {
-                lastError = e
-                Log.w("GeminiTranslate", "attempt ${attempt + 1} failed, retrying: ${e.message}")
+        try {
+            repeat(2) { attempt ->
+                if (dto != null) return@repeat
+                try {
+                    val responseJson = callGeminiApi(
+                        apiKey,
+                        modelId,
+                        prompt,
+                        imageBytes = null,
+                        generationConfig = buildTranslationConfig(recipe)
+                    )
+                    Log.d("GeminiTranslate", "model=$modelId attempt ${attempt + 1} returned ${responseJson.length} bytes")
+                    dto = parseTranslationText(responseJson)
+                } catch (e: MalformedResponseException) {
+                    lastError = e
+                    Log.w("GeminiTranslate", "model=$modelId attempt ${attempt + 1} failed, retrying: ${e.message}")
+                }
             }
+        } catch (e: Exception) {
+            Log.e("GeminiTranslate", "translate \"${recipe.title}\" with $modelId failed: ${e.message}")
+            throw e
         }
-        dto ?: throw lastError ?: MalformedResponseException("Translation failed")
+        if (dto == null) {
+            Log.e("GeminiTranslate", "translate \"${recipe.title}\" with $modelId failed: ${lastError?.message}")
+            throw lastError ?: MalformedResponseException("Translation failed")
+        }
         return recipe.copy(
             title = dto.title.ifBlank { recipe.title },
             notes = dto.notes?.takeIf { it.isNotBlank() } ?: recipe.notes,
@@ -303,8 +317,14 @@ class GeminiOcrClient(
                 throw MalformedResponseException("Failed to parse API response: ${e.message}")
             }
 
-            apiResponse.candidates?.firstOrNull()
-                ?.content?.parts?.firstOrNull()
+            val candidate = apiResponse.candidates?.firstOrNull()
+            if (candidate?.finishReason == "MAX_TOKENS") {
+                throw TruncatedResponseException(
+                    "Gemini hit the output limit and cut the response off" +
+                            " (the recipe or translation is very long)."
+                )
+            }
+            candidate?.content?.parts?.firstOrNull()
                 ?.text ?: throw MalformedResponseException("No text content in Gemini response")
         }
     }
@@ -364,20 +384,29 @@ class GeminiOcrClient(
      * Gemini's decoder to emit matching JSON directly — bounded, well-formed
      * output that can't run away to maximal tokens and truncate mid-JSON
      * (the free-form config below was slow + parse-failing on long recipes).
+     *
+     * The output budget is raised well above the image-scan budget because a
+     * translation rewrites *every* word of a recipe (input length ≠ output
+     * length across languages), and even constrained JSON can be cut off at
+     * `MAX_TOKENS` on very long recipes. Items are additionally pinned with
+     * minItems/maxItems equal to the source counts so Gemini can't silently
+     * drop or merge ingredients/steps.
      */
-    private fun buildTranslationConfig() = buildJsonObject {
-        put("maxOutputTokens", JsonPrimitive(4096))
+    private fun buildTranslationConfig(recipe: Recipe) = buildJsonObject {
+        put("maxOutputTokens", JsonPrimitive(8192))
         put("response_mime_type", JsonPrimitive("application/json"))
-        put("response_schema", translationResponseSchema())
+        put("response_schema", translationResponseSchema(recipe))
     }
 
-    private fun translationResponseSchema() = buildJsonObject {
+    private fun translationResponseSchema(recipe: Recipe) = buildJsonObject {
         put("type", JsonPrimitive("object"))
         put("properties", buildJsonObject {
             put("title", typeSchema("string"))
             put("notes", typeSchema("string", nullable = true))
             put("ingredients", buildJsonObject {
                 put("type", JsonPrimitive("array"))
+                put("minItems", JsonPrimitive(recipe.ingredients.size))
+                put("maxItems", JsonPrimitive(recipe.ingredients.size))
                 put("items", buildJsonObject {
                     put("type", JsonPrimitive("object"))
                     put("properties", buildJsonObject {
@@ -390,6 +419,8 @@ class GeminiOcrClient(
             })
             put("steps", buildJsonObject {
                 put("type", JsonPrimitive("array"))
+                put("minItems", JsonPrimitive(recipe.steps.size))
+                put("maxItems", JsonPrimitive(recipe.steps.size))
                 put("items", buildJsonObject {
                     put("type", JsonPrimitive("object"))
                     put("properties", buildJsonObject {

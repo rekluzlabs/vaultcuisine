@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Rekluz Labs. All rights reserved.
+ * This code and its assets are the exclusive property of Rekluz Labs.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
 package com.rekluzlabs.vaultcuisine.ui.screens
 
 import android.net.Uri
@@ -1007,6 +1012,8 @@ private fun EditModeContent(
                 onDrag = { delta -> dragState = dragState?.let { handleDragDelta(it, delta, lines, vm) } },
                 onDragEnd = { dragState = null },
                 onUpdateText = { vm.updateLineText(line.id, it) },
+                onUpdateAmount = { vm.updateIngredientAmount(line.id, it) },
+                onUpdateUnit = { vm.updateIngredientUnit(line.id, it) },
                 onDelete = { vm.deleteLine(line.id) },
                 onMoveUp = { vm.moveLineUp(line.id) },
                 onMoveDown = { vm.moveLineDown(line.id) },
@@ -1126,6 +1133,8 @@ private fun IngredientEditRow(
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
     onUpdateText: (String) -> Unit,
+    onUpdateAmount: (String) -> Unit,
+    onUpdateUnit: (String) -> Unit,
     onDelete: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -1175,15 +1184,31 @@ private fun IngredientEditRow(
                 textStyle = MaterialTheme.typography.bodyLarge,
                 placeholder = { Text("Ingredient name") }
             )
-            if (detail != null && (detail.amount != null || detail.unit != null)) {
-                Text(
-                    text = buildString {
-                        detail.amount?.let { append(it); append(" ") }
-                        detail.unit?.let { append(it) }
-                    }.trim(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            if (detail != null) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = detail.amount ?: "",
+                        onValueChange = onUpdateAmount,
+                        modifier = Modifier.weight(0.5f),
+                        singleLine = true,
+                        label = { Text("Amount") },
+                        placeholder = { Text("1") },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+                    OutlinedTextField(
+                        value = detail.unit ?: "",
+                        onValueChange = onUpdateUnit,
+                        modifier = Modifier.weight(0.5f),
+                        singleLine = true,
+                        label = { Text("Unit") },
+                        placeholder = { Text("tbsp") },
+                        textStyle = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
 

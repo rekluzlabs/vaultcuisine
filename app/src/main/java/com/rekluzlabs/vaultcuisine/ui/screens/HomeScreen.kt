@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Rekluz Labs. All rights reserved.
+ * This code and its assets are the exclusive property of Rekluz Labs.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
 package com.rekluzlabs.vaultcuisine.ui.screens
 
 import androidx.compose.foundation.BorderStroke
@@ -315,7 +320,6 @@ private fun CategoryTile(
                     tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-        }
         }
     }
 }

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Rekluz Labs. All rights reserved.
+ * This code and its assets are the exclusive property of Rekluz Labs.
+ * Unauthorized copying, distribution, or commercial use is strictly prohibited.
+ */
 package com.rekluzlabs.vaultcuisine.ai
 
 /**
@@ -24,7 +29,9 @@ class NetworkException(cause: Throwable) : GeminiOcrException("Network error: ${
 
 class ApiException(val code: Int, message: String) : GeminiOcrException(message)
 
-class MalformedResponseException(message: String) : GeminiOcrException(message)
+open class MalformedResponseException(message: String) : GeminiOcrException(message)
+
+class TruncatedResponseException(message: String) : MalformedResponseException(message)
 
 class NotARecipeException(val guessedTitle: String?) : GeminiOcrException(
     "Response indicates this is not a recipe: ${guessedTitle ?: "unknown"}"
