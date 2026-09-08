@@ -1,7 +1,7 @@
 # VaultCuisine Privacy Policy
 
 **Rekluz Labs**
-Effective Date: July 30, 2026 · Version 1.0
+Effective Date: September 08, 2026 · Version 1.0.1
 
 At Rekluz Labs, we respect your privacy and are committed to protecting
 your personal data. This Privacy Policy explains how VaultCuisine handles
@@ -135,4 +135,4 @@ Email: [rekluzlabs@gmail.com](mailto:rekluzlabs@gmail.com)
 
 ---
 
-*This Privacy Policy was last updated on July 30, 2026.*
+*This Privacy Policy was last updated on September 08, 2026.*
